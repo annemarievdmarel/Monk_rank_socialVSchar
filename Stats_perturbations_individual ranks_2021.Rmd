@@ -1,0 +1,1856 @@
+---
+title: "Perturbations monk parakeets"
+author: "Annemarie"
+date: "23/05/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+R code to obtain the dominance hierarchy of 3-day period 
+  - Dominance rank 
+
+Basics
+-	Number of total aggressive events observed
+-	Total hours observed
+
+Figures
+1.	Rank plot 
+2.	Mass changes
+SM2.  Average power score change vs power score change focal
+SM3.	Mass changes on rank 
+SM4.  sex on rank (regressions)
+
+
+#Load packages
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(purrr)
+library(domstruc) #install_github("danm0nster/domstruc")
+library(ggbump)
+library(lubridate)
+library(ggthemes)
+library(ggrepel)
+library(ggpubr)
+library(betareg)
+library(glmmADMB)
+library(lme4)
+library(lmtest)
+
+```
+
+
+# Import data
+
+```{r raw data import, echo=FALSE}
+## agonistic interaction data
+behave_raw <- read.csv("./data/2021_MOPA_agonistic interactions.csv") %>%
+  dplyr::select(-X)  # whole field season
+glimpse(behave_raw)
+
+
+# bird list
+birdIDs_capture<- read.csv("./data/2021_MOPA_IDs.csv") 
+birdIDs <- birdIDs_capture %>%
+  dplyr::select(mark_id)
+
+# capture file
+size<- read.csv("./data/morphometrics_focals_2021.csv") %>%
+  dplyr::select(date, id, weight)
+
+# bin dates
+bin.dates <- read.csv("./data/2021_3daybins.csv")
+
+```
+
+```{r created data import}
+
+## interaction data
+# this is where duplicates are removed and aggression data is summarized by bin
+dyad.aggXbin <- read.csv("./output/2021_aginteractions_socialperturb.csv") %>%
+  dplyr::select(-X) 
+
+## summary files of output 
+#  long perturbation summary
+summary <- read.csv("./output/long_perturbation_summary.csv")
+
+# individual rank X bin
+powerXbin <- read.csv("./output/MOPA_power score.csv")
+
+# focal rank aggression per bin
+focal_rank_agg <- read.csv("./output/id_level_agg_longperturbation.csv")
+
+
+```
+
+
+
+# Ready data  
+
+## Helper functions & data
+```{r echo=FALSE}
+
+#make matrix function (from dataframe, 1st col with row names)
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+
+# list of days with observations
+obsday.list <- as.character(unique(behave$date)) #only days with observations
+obsday.list.wday <- as.data.frame(obsday.list)
+colnames(obsday.list.wday) <- "date"
+obsday.list.wday$nday <- seq(1:length(obsday.list.wday$date))
+
+
+#bird color
+bird.cols <- as.data.frame(bird.list)
+bird.cols <- separate(bird.cols, bird.list, c("head", "cheeks", "neck"),
+                      sep = c(1,2), remove = F )
+
+bird.cols$head.col[bird.cols$head=="B"] <- "blue"
+bird.cols$head.col[bird.cols$head=="G"] <- "forestgreen"
+bird.cols$head.col[bird.cols$head=="O"] <- "orange"
+bird.cols$head.col[bird.cols$head=="P"] <- "purple"
+
+bird.cols$cheek.col[bird.cols$cheeks=="B"] <- "blue"
+bird.cols$cheek.col[bird.cols$cheeks=="G"] <- "forestgreen"
+bird.cols$cheek.col[bird.cols$cheeks=="O"] <- "orange"
+bird.cols$cheek.col[bird.cols$cheeks=="P"] <- "purple"
+
+bird.cols$neck.col[bird.cols$neck=="B"] <- "blue"
+bird.cols$neck.col[bird.cols$neck=="G"] <- "forestgreen"
+bird.cols$neck.col[bird.cols$neck=="O"] <- "orange"
+bird.cols$neck.col[bird.cols$neck=="P"] <- "purple"
+
+bird.cols
+
+
+```
+
+## bird list
+change for each perturbation as different birds are removed
+```{r}
+##list of all valid color combinations
+# birdIDs$mark_id = all 20 birds
+birdIDs_removal1 <- birdIDs %>% filter(mark_id!="BBB")
+birdIDs_removal2 <- birdIDs %>% filter(mark_id!="GPG")
+birdIDs_removal3 <- birdIDs %>% filter(mark_id!="OPP")
+
+# change each time
+bird.list <- sort(unique(birdIDs$mark_id)) 
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+length(dyad.list$dyadID) # 380 dyads with 20 birds
+```
+
+
+## Remove duplicates
+
+We remove duplicates in a more conservative way. We remove duplicates using crowds and displacements combined from the beginning, results in less agonistic events but mistakes per behavior (e.g., entered crowd while it had to be displacement) are excluded. 
+
+See Rmarkdown "Stats_remove duplicates" where we checked whether we did not observe the removed bird during its removal period. WE did not, so we remove duplicates for the whole experimental period combined. 
+
+Time periods:
+pre-removal         (bin==1)
+removal 1           (bin==2 | bin==3)
+reintroduction 1    (bin==4 | bin==5)
+removal 2           (bin==6 | bin==7)
+reintroduction 2    (bin==8 | bin==9)
+removal 3           (bin==10 | bin==11)
+reintroduction 3    (bin==12 | bin==13)
+
+removal bins 16-day perturbations (19 birds)
+removal 1: BBB (bin==2 | bin==3)
+removal 2: GPG (bin==6 | bin==7)
+removal 3: OPP (bin==10 | bin==11)
+
+NB: bins 0 and 13 are bordering periods, not used in analyses, expect bin 13 that is used for the recovery measures of the focal bird OPP
+
+
+
+```{r remove duplicates}
+behave<-behave_raw
+
+# check data
+unique(behave$behavior)
+unique(behave$date)
+length(unique(behave$date))
+sort(unique(behave$bin)) 
+unique(behave$actor)
+unique(behave$subject)
+
+
+#### Remove duplicates for displacements and crowds ####
+##more conservative: removing duplicates by crowds and displacements combined
+#behave_totalagg<-behave_totalagg_removal
+
+# filter displacement & crowd data from all data
+aggDC <- behave
+
+str(aggDC)
+length(aggDC$sessionKEY)
+
+# keep only observations where the actor is in the list of bird IDs
+aggDC.goodID <- subset(aggDC, actor %in% bird.list) 
+
+# keep only observations where the actor (found above) and the subject are both in the list of bird IDs
+aggDC.goodID <- subset(aggDC.goodID, subject %in% bird.list)
+
+sort(unique(aggDC.goodID$actor))
+sort(unique(aggDC.goodID$subject))
+
+## for total agonistic events (crowds and displacements combined)
+#finds n displacements and crowds by sessionKEY, date, time, actor, subject
+dyad.totalagg.key <- aggDC.goodID %>% 
+  dplyr::group_by(sessionKEY, bin, date, time,actor, subject) %>%  # removed , behavior
+  tally() # counts behaviors that were observed within the same minute
+
+#finds max agg per actor by date, time. Return just that summary
+dyad.totalagg.maxkey <- dyad.totalagg.key %>% 
+  group_by(actor, subject,bin,  date, time) %>% 
+  slice(which.max(n)) %>% # n.aggXaggXkey if summarise, n if tally
+  ungroup()
+head(dyad.totalagg.maxkey)
+
+#finds n agg per actor by date for summarized/trimmed data
+dyad.totalaggXbin <- dyad.totalagg.maxkey %>% 
+  group_by(actor, subject, bin) %>% 
+  summarise(n.aggXbin=sum(n)) %>% 
+  ungroup()
+head(dyad.totalaggXbin)
+
+
+```
+
+```{r save output}
+# all periods combined 
+glimpse(dyad.totalaggXbin)
+length(dyad.totalaggXbin$n.aggXbin)
+sum(dyad.totalaggXbin$n.aggXbin)
+
+
+write.csv(dyad.totalaggXbin, "./output/2021_aginteractions_socialperturb.csv")
+
+```
+
+
+
+
+
+# Analyses
+
+```{r import data}
+
+dyad.totalaggXbin <- read.csv("./output/2021_aginteractions_socialperturb.csv")
+
+```
+
+
+
+## total aggression
+```{r}
+# summarize total interactions (duplicates included)
+behave_agg <- behave %>%
+  filter(!rank_assessment %in% c(0,13))
+unique(behave_agg$rank_assessment)
+
+length(behave_agg$behavior)
+
+# summarize total interactions (duplicates excluded)
+total_agg <- dyad.totalaggXbin %>%
+  filter(!bin %in% c(0,13))
+sort(unique(total_agg$bin))
+sum(total_agg$n.aggXbin) # 22746 for all bins combined 
+```
+
+
+## observation hours
+long perturbations 
+```{r observation hours }
+glimpse(summary)
+
+summ_obs <- summary %>%
+  filter(!rank_assessment %in% c(0,13))
+
+sum(summ_obs$obs_days) 
+sum(summ_obs$hours_observed) 
+sum(summ_obs$person_hours) 
+
+```
+
+
+## Testing whether removed individuals can re-take their rank
+Dominance analyses using crowds and displacements
+
+```{r select dataframe}
+
+#dyad.totalaggXbin.longperturb <- read.csv("./output/2021_aginteractions_socialperturb.csv") %>%
+#  dplyr::select(-X)
+
+head(dyad.totalaggXbin)
+dyad.totalaggXbin_allbins <- dyad.totalaggXbin
+
+# select period (20 or 19 birds)
+#dyad.totalaggXbin <- dyad.totalaggXbin_allbins # all periods
+
+dyad.totalaggXbin <- dyad.totalaggXbin.longperturb %>% 
+  filter(bin %in% c(0,1,4,5,8,9, 12,13)) # periods with 20 birds
+
+dyad.totalaggXbin <- dyad.totalaggXbin.longperturb %>% 
+  filter(bin %in% c(2,3)) # removal 1
+
+dyad.totalaggXbin <- dyad.totalaggXbin.longperturb %>% 
+  filter(bin %in% c(6,7)) # removal 2
+
+dyad.totalaggXbin <- dyad.totalaggXbin.longperturb %>% 
+  filter(bin %in% c(10,11)) # removal 3
+
+sort(unique(dyad.totalaggXbin$actor))
+sort(unique(dyad.totalaggXbin$subject))
+
+
+
+##list of all valid color combinations
+# birdIDs$mark_id3 = all 20 birds
+birdIDs_removal1 <- birdIDs %>% filter(mark_id!="BBB")
+birdIDs_removal2 <- birdIDs %>% filter(mark_id!="GPG")
+birdIDs_removal3 <- birdIDs %>% filter(mark_id!="OPP")
+
+
+# change bird list
+bird.list <- sort(unique(birdIDs_removal3$mark_id)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+#make matrix function (from dataframe, 1st col with row names)
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+```
+
+### quantify rank
+```{r loop for dominance measures}
+
+# check data
+sort(unique(dyad.totalaggXbin$actor))
+sort(unique(dyad.totalaggXbin$subject))
+length(unique(dyad.totalaggXbin$actor))
+length(unique(dyad.totalaggXbin$subject))
+
+#### DOMINANCE RANK BY bin####
+
+head(dyad.totalaggXbin)
+
+# make empty data frame to put data in
+ec_rank <- data.frame(run.code=character(),
+                      bird.list=character(), 
+                      dom_ec=numeric(), 
+                      rank=numeric())
+
+# run = 1
+
+start.time <- Sys.time()
+
+loopby<-unique(dyad.totalaggXbin$bin)
+
+#i=1
+
+for(i in seq_along(unique(dyad.totalaggXbin$bin))){
+  run.code <- loopby[i]
+  print(run.code)
+  run.data <- subset(dyad.totalaggXbin, bin==run.code)
+  
+# number of dyads correct?
+  #length(run.data$actor)
+  #check <- sum.aggXday %>% filter(date==run.code)
+  #head(check)
+  
+  data_alldyads <- merge(dyad.list, run.data, all.x=TRUE,
+                       by=c("actor", "subject")) 
+  
+  #head(data_alldyads)
+  #length(unique(data_alldyads$dyadID)) # with 20 birds: 380 dyads
+  
+  data_alldyads$date<-run.code
+  
+ #fill newly-merged data with 0's where no interactions
+ data_alldyads[is.na(data_alldyads)] <- 0
+  
+   #print a check
+  check <- length(data_alldyads$actor)
+  print(check)
+
+# matrix  
+  mx <- reshape2::dcast(data_alldyads, actor~subject, value.var="n.aggXbin") #head(ref.behavior1.mx)
+  mx[is.na(mx)] <- 0 #for linearity measure, matrix needs to be fully filled, no NAs
+  mx <- matrix.please(mx)
+  
+  ## dominance
+  dom_ec <- dom_ec(mx)
+  rank <- dom_ranks(dom_ec )
+
+  # combine in dataframe
+  pool <- cbind.data.frame(run.code, 
+                         bird.list,
+                         dom_ec, 
+                         rank)
+
+  ec_rank<-rbind(ec_rank, pool )
+
+}
+
+end.time <- Sys.time()
+
+#Time to run:
+end.time - start.time
+
+# check
+head(ec_rank)
+length(unique(ec_rank$run.code))
+check <- ec_rank %>% 
+  group_by(run.code) %>% 
+  summarize(length(bird.list))
+
+ec_rankXbin <- ec_rank %>%
+  rename(bin=run.code, id=bird.list) %>%
+  group_by(bin) %>%
+  mutate(rank=length(id)+1-rank) %>%
+  arrange(bin, rank) 
+
+
+
+```
+
+
+
+```{r combine rank files}
+# rename each time
+#ec_rankXbin_20birds <- ec_rankXbin
+#ec_rankXbin_removal1 <- ec_rankXbin
+#ec_rankXbin_removal2 <- ec_rankXbin
+#ec_rankXbin_removal3 <- ec_rankXbin
+
+# combine dataframes
+ec_rankXbin <- bind_rows(ec_rankXbin_20birds,
+                         ec_rankXbin_removal1,
+                         ec_rankXbin_removal2,
+                         ec_rankXbin_removal3)
+
+# if we do complete dataframe than the removed birds are also included in the removal periods
+check <- ec_rankXbin %>%  
+  group_by(bin) %>% 
+  summarize(length(id))
+
+
+# sort and flip score, so that higher ranking birds have higher power scores. 
+ec_rankXbin <- ec_rankXbin %>%
+  arrange(bin) %>%
+  mutate(power=1-dom_ec)
+
+
+
+# save output
+#write.csv(ec_rankXbin, "./output/MOPA_power score.csv")
+
+```
+
+
+
+### visualise rank over time (excluding removal period)
+```{r import dom rank scores}
+
+#powerXbin <- read.csv("./output/MOPA_power score.csv")
+#ec_rankXbin <- powerXbin 
+
+unique(sort(ec_rankXbin$bin))
+
+ec_rankXbin %>% group_by(bin) %>% summarise(n=n())
+
+```
+
+remove segment for removed birds:
+https://github.com/davidsjoberg/ggbump/wiki/My-year-on-Spotify (example)
+
+BBB ->  (removal bin  2 and 3 
+GPG ->  (removal bin  6 and 7
+OPP ->  (removal bin  10 and 11
+
+Use long perturbation (both removal and reintroduction) for all birds except focals than add each focal without reintroduction period into plot. 
+```{r Fig1. power score over time X rank assessment point}
+# flip scores so larger numbers are higher scored 
+# remove focal birds from overall plot
+
+head(ec_rankXbin)
+glimpse(ec_rankXbin)
+
+bird.list <- sort(unique(birdIDs$mark_id)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+id.colors <- bird.cols %>%
+  dplyr::select( bird.list, neck.col) %>%
+  rename(id=bird.list)
+
+
+ec_rankXbin_plot<- left_join(ec_rankXbin, id.colors, by="id") #%>%
+  #filter(bin!=23) %>%
+  #mutate(power=1-dom_ec)
+unique(sort(ec_rankXbin_plot$bin))
+
+# exclude the focal birds
+ec_rankXbin_plot_nonfocals <- ec_rankXbin_plot %>% 
+  filter(!id %in% c("BBB", "GPG", "OPP"))
+unique(ec_rankXbin_plot_nonfocals$id)
+length(unique(ec_rankXbin_plot_nonfocals$id))
+
+
+
+# custom colors
+# Make a palette by drawing pseudo random colors from `RColorBrewer`
+set.seed(42)
+custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
+                    RColorBrewer::brewer.pal(8, "Dark2"),
+                    RColorBrewer::brewer.pal(3, "Set2")) %>% 
+  sample(n_distinct(ec_rankXbin_plot$id))
+
+
+
+# plot (highlight most dominant)
+## first plot the nonfocal birds
+plot <- ggplot(ec_rankXbin_plot_nonfocals, aes(x=bin, y=power, color=id)) +
+  geom_bump(size = 2, smooth = 15, alpha = 0.2) +
+  scale_x_continuous( breaks = seq(1,12,1)) +
+  scale_y_continuous( breaks = seq(0.80,1.00,0.05)) +
+  #scale_y_reverse() +
+  scale_colour_manual(values = custom_palette) +
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="rank assessment points", y = "power score") +
+  theme_classic() +
+  theme(axis.title = element_text(colour = "#2F4858", size = 18),
+        axis.text.y=element_text(colour = "#2F4858", size = 18),
+        axis.text.x=element_text(colour = "#2F4858", size = 18),
+        #axis.ticks.x=element_blank(),
+        legend.position = "none",
+        #text = element_text(family = "Montserrat", colour = "#2F4858"),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        #axis.text = element_text(colour = "#2F4858", size = 18), #, face = "bold"
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+        plot.caption = element_text(size = 18), 
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) 
+plot
+
+
+# now add lines for the focal birds
+# BBB removal 2 and 3
+plotBBB <- plot + 
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="BBB", bin==1),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, color = "#1f78b4", inherit.aes = F) +
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="BBB", bin==4),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 18, color = "#1f78b4", inherit.aes = F) +
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "BBB", bin<2), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#1f78b4", inherit.aes = F) + 
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "BBB", bin>3), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#1f78b4", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == min(bin)), aes(label = "BBB")) +
+  geom_text(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "BBB"),
+            color = "#1f78b4", size = 10, hjust = 0) + #, fontface = "bold"
+   #geom_text(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "BBB"),
+  #          color = "#1f78b4", size = 12, hjust = 0, fontface = "bold") +
+   geom_vline(xintercept = 1.5, linetype="dashed", color =  alpha("black", 0.6)) +
+   geom_vline(xintercept = 3.5, linetype="dotted", color =  alpha("black", 0.6))
+    
+
+# GPG removal bin 16 and 17
+plotGPG <- plotBBB + #bin %in% c(15,18)
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="GPG", bin==5),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, color = "#6a51a3", inherit.aes = F) +
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="GPG", bin==8),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6,shape=18, color = "#6a51a3", inherit.aes = F) +
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "GPG", bin<6), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#6a51a3", inherit.aes = F) + 
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "GPG", bin>7), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#6a51a3", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "GPG",bin == min(bin)), aes(label = "GPG")) +
+  geom_text(data = ec_rankXbin_plot %>% filter(id == "GPG",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "GPG"),
+            color = "#6a51a3", size = 10, hjust = 0) + #, fontface = "bold"
+   #geom_text(data = ec_rankXbin_plot %>% filter(id == "GPG",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "GPG"),
+  #          color = "#6a51a3", size = 12, hjust = 0, fontface = "bold") +
+   geom_vline(xintercept = 5.5, linetype="dashed", color =  alpha("black", 0.6)) +
+   geom_vline(xintercept = 7.5, linetype="dotted", color =  alpha("black", 0.6)) 
+    
+
+# OPP removal bin 20 and 21
+plotOPP <- plotGPG + #bin %in% c(19,21)
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="OPP", bin==9),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, color = "#ff7f00", inherit.aes = F) +
+  geom_point(data = ec_rankXbin_plot  %>% filter(id=="OPP", bin==12),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 18, color = "#ff7f00", inherit.aes = F) +
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "OPP", bin<10), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#ff7f00", inherit.aes = F) + 
+  geom_bump(data = ec_rankXbin_plot %>% filter(id == "OPP", bin>11), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#ff7f00", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "OPP",bin == min(bin)), aes(label = "OPP")) +
+  geom_text(data = ec_rankXbin_plot %>% filter(id == "OPP",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "OPP"),
+            color = "#ff7f00", size = 10, hjust = 0) + #, fontface = "bold"
+   #geom_text(data = ec_rankXbin_plot %>% filter(id == "OPP",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "OPP"),
+  #          color = "#ff7f00", size = 12, hjust = 0, fontface = "bold") +
+   geom_vline(xintercept = 9.5, linetype="dashed", color =  alpha("black", 0.6)) +
+   geom_vline(xintercept = 11.5, linetype="dotted", color =  alpha("black", 0.6))
+
+plotOPP 
+
+# all combined
+ggsave("./figures/Fig1_rank_all+focals.pdf", width = 18, height = 9)
+
+```
+We then adjusted the plot in inkscape to include our experimental setup. 
+
+
+### power score change
+A comparison of how much change occurred in all other birds vs the focal. 
+A raincloud plot of absolute rank change across all group members except the focal and then a point showing the focal’s absolute change for Supplemental Material
+Average power score change vs power score change focal
+
+BBB ->  (removal bin 12 and 13) 2 and 3 
+GPG ->  (removal bin 16 and 17) 6 and 7
+OPP ->  (removal bin 20 and 21) 10 and 11
+
+
+```{r Change after reintroduction - before removal}
+
+glimpse(ec_rankXbin) # power = flipped dom_ec score
+
+
+#Change after reintroduction - before removal
+rank_change <- ec_rankXbin %>% 
+  dplyr::select(bin, id, power) %>%
+  arrange(bin, id) %>%
+  group_by(id) %>%
+  mutate(lead=lead(power),
+         power_change=lead-power) 
+
+```
+
+
+
+```{r power score change after removal}
+
+# get data ready per trial
+## trial 1 
+trial1_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(1,4)) %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin4-bin1, 
+         trial=1)  
+
+trial1_rank_nofocal <- trial1_rank %>%
+  filter(id!="BBB") %>% #length(trial1_rank_mean$id)
+  mutate(trial=1)  %>%
+  dplyr::select(trial, id, power_change)
+
+trial1_rank_mean <- mean(abs(trial1_rank_nofocal$power_change))
+
+BBB_rank_change <-  trial1_rank %>%
+  filter(id=="BBB") %>%
+  mutate(abs_power_change=abs(power_change))
+
+
+## trial 2
+trial2_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(5,8)) %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin8-bin5,
+         trial=2)
+
+trial2_rank_nofocal <- trial2_rank %>%
+  filter(id!="GPG") %>% #length(trial2_ran$id)
+  mutate(trial=2)  %>%
+  dplyr::select(trial, id, power_change)
+
+trial2_rank_mean <- mean(abs(trial2_rank_nofocal$power_change))
+
+GPG_rank_change <-  trial2_rank %>%
+  filter(id=="GPG") %>%
+  mutate(abs_power_change=abs(power_change))
+
+## trial 3
+trial3_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(9,12)) %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin12-bin9,
+         trial=3) 
+
+
+trial3_rank_nofocal <- trial3_rank %>%
+  filter(id!="OPP") %>% #length(trial2_ran$id) %>%
+  dplyr::select(trial, id, power_change)
+
+trial3_rank_mean <- mean(abs(trial3_rank_nofocal$power_change))
+
+OPP_rank_change <-  trial3_rank %>%
+  filter(id=="OPP") %>%
+  mutate(abs_power_change=abs(power_change))
+
+## combine data
+# absolute power change datasets 
+trial_ranks_nofocal <- bind_rows(trial1_rank_nofocal, trial2_rank_nofocal, trial3_rank_nofocal)
+
+trial_ranks <- bind_rows(trial1_rank, trial2_rank, trial3_rank)
+
+trial_ranks_nofocal$order <- factor(trial_ranks_nofocal$trial, 
+                                    levels=c(3,2,1))
+
+# summarise 
+summ_rankchange <- trial_ranks_nofocal %>%
+  group_by(trial) %>%
+  summarize(mean=mean(abs(power_change)),
+            sd=sd(abs(power_change)),
+            n=n())
+
+
+```
+
+```{r plot supplemental material 1}
+# plot: raincloud 
+ggplot(trial_ranks_nofocal, aes(x=factor(trial), y=abs(power_change))) +
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .5,
+    height = .5,
+    ## move geom to the right
+    justification = -.1, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = .12, 
+  ) +
+  ggdist::stat_dots(
+    layout="weave",
+    size=1,
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.1, 
+    ## adjust grouping (binning) of observations 
+    #binwidth = 0.001
+  )+
+  #scale_y_reverse() +
+  #coord_cartesian(ylim = c(0.7, NA)) +
+  theme_classic() +
+  labs(x= "Trial", y = "absolute power change") +
+  annotate('point', x= 0.871, y=BBB_rank_change$abs_power_change, size = 5, color = "#1f78b4" ) +
+  annotate('point', x= 1.871, y=GPG_rank_change$abs_power_change, size = 5, color = "#6a51a3") +
+  annotate('point', x= 2.871, y=OPP_rank_change$abs_power_change, size = 5, color = "#ff7f00" ) +
+  theme(axis.title = element_text(colour = "#2F4858", size = 18),
+        axis.text.y=element_text(colour = "#2F4858", size = 18),
+        axis.text.x=element_text(colour = "#2F4858", size = 18),
+        #axis.ticks.x=element_blank(),
+        legend.position = "none",
+        #text = element_text(family = "Montserrat", colour = "#2F4858"),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        #axis.text = element_text(colour = "#2F4858", size = 18), #, face = "bold"
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+        plot.caption = element_text(size = 18), 
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm")) 
+
+ggsave("./figures/FigSM2_power_change_raincloud.pdf", width = 6, height = 4)
+```
+
+
+```{r focal power score recovery after reintroduction}
+
+## trial 1 
+trial1_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(5,4), id=="BBB") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin5-bin4, 
+         trial=1)  
+
+## trial 2
+trial2_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(9,8), id=="GPG") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin9-bin8,
+         trial=2)
+
+## trial 3
+trial3_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(13,12), id=="OPP") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = power) %>%
+  mutate(power_change=bin13-bin12,
+         trial=3) 
+
+
+```
+
+Rank change and recovery focals
+```{r rank changes}
+
+
+## trial 1 
+trial1_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(1,4), id=="BBB") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(rank_change=bin1-bin4, 
+         trial=1) 
+trial1_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(5,4), id=="BBB") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(rank_change=bin4-bin5, 
+         trial=1)  
+
+## trial 2
+trial2_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(5,8), id=="GPG") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(power_change=bin5-bin8,
+         trial=2)
+
+trial2_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(9,8), id=="GPG") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(power_change=bin8-bin9,
+         trial=2)
+
+## trial 3
+trial3_rank <- ec_rankXbin %>% 
+  filter(bin %in% c(9,12), id=="OPP") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(power_change=bin9-bin12,
+         trial=3) 
+trial3_recovery <- ec_rankXbin %>% 
+  filter(bin %in% c(13,12), id=="OPP") %>%
+  pivot_wider(id_cols=id,
+              names_from = bin, 
+              names_prefix = "bin",
+              values_from = rank) %>%
+  mutate(power_change=bin12-bin13,
+         trial=3) 
+
+
+```
+
+
+## Do individual characteristics underly rank?
+
+- Per bin,	effect of sex on rank and on target of aggression (permutation test; reassign sex, keep same distribution)
+- Per bin, effect of body weight on rank
+- are removals stressful for focal?
+
+Effect of size and sex on rank (rank – body size  + sex + (1|ID) + (1|trial)) -> not necessary as we only have 3 datapoints for weights but 12 for sex, therefore better to quantify the effect separately for sex and body mass
+
+```{r ready data}
+
+#ec_rankXbin <- read.csv("./output/MOPA_power score.csv")
+#ecrankXbin <- powerXbin
+head(ec_rankXbin) # dominance rank
+
+
+# add sex to df
+head(birdIDs_capture) # sex
+
+birdID_select <- birdIDs_capture %>%
+  rename(id=mark_id)
+
+ec_sex <- ec_rankXbin %>% 
+  group_by(bin) %>%
+  left_join(birdID_select, by="id") 
+
+
+# add size of birds (mass)
+head(size)
+
+bin_trap <- bin.dates %>%
+  dplyr::select( rank_assessment, capture_date) %>% 
+  rename(date=capture_date, bin=rank_assessment) %>%
+  filter(date!="") 
+
+# add trial number so that we can duplicate weight for both bins bordering the capture
+bin_trap$trial[bin_trap$date=='2021-05-19'] <- 1
+bin_trap$trial[bin_trap$date=='2021-06-05'] <- 2
+bin_trap$trial[bin_trap$date=='2021-06-23'] <- 3
+bin_trap$trial[bin_trap$date=='2021-07-05'] <- "post"
+
+bin_trap$bin[bin_trap$date=='2021-05-19'] <- 2
+bin_trap$bin[bin_trap$date=='2021-06-05'] <- 6
+bin_trap$bin[bin_trap$date=='2021-06-23'] <- 10
+bin_trap$bin[bin_trap$date=='2021-07-05'] <- 13
+
+# combine weihgt with trap dates
+dfmass_captures <- left_join(bin_trap, size, by="date") %>% 
+  left_join(birdID_select) %>%
+  filter(trial!="") %>%
+  dplyr::select(-bin)
+#filter(!rank_assessment %in% c(NA,4,8,12)) %>% # weight of focal upon reintroduction
+  
+# add trial # to bins
+glimpse(ec_rankXbin)
+ec_rankXbin$trial[ec_rankXbin$bin==1]<- 1
+ec_rankXbin$trial[ec_rankXbin$bin==2]<- 1
+ec_rankXbin$trial[ec_rankXbin$bin==3]<- 1
+ec_rankXbin$trial[ec_rankXbin$bin==4]<- 1
+ec_rankXbin$trial[ec_rankXbin$bin==5]<- 2
+ec_rankXbin$trial[ec_rankXbin$bin==6]<- 2
+ec_rankXbin$trial[ec_rankXbin$bin==7]<- 2
+ec_rankXbin$trial[ec_rankXbin$bin==8]<- 2
+ec_rankXbin$trial[ec_rankXbin$bin==9]<- 3
+ec_rankXbin$trial[ec_rankXbin$bin==10]<-3
+ec_rankXbin$trial[ec_rankXbin$bin==11]<-3
+ec_rankXbin$trial[ec_rankXbin$bin==12]<-3
+
+ec_rankXbin$trial <- as.factor(ec_rankXbin$trial)
+
+ec_size <- ec_rankXbin %>%
+  left_join(dfmass_captures, by= c("trial","id")) %>%
+  filter(bin %in% c(1, 2, 5,6, 9,10 )) # duplicate weights for the  bins prior capture-> keep bins : 1, 2, 5,6, 9,10 #unique(ec_size$bin)
+glimpse(ec_size)
+
+sort(unique(ec_size$bin))
+
+
+
+```
+
+
+
+
+### basics: sex and size 
+```{r sex and size basics}
+
+# how many females and males?
+birdID_select %>%
+  group_by(sex) %>%
+  summarise(n())
+
+# mean mass across social perturbation period
+dfmass_captures %>% 
+  ungroup()%>% 
+  filter(trial!="post") %>%
+  summarise(mean=mean(weight,na.rm=TRUE),
+            sd=sd(weight,na.rm=TRUE),
+            n=n(),
+            se=sd/sqrt(n), 
+            na.rm=TRUE)
+
+mass_sex <- dfmass_captures%>% 
+  filter(trial!="post") %>%
+  group_by(sex)%>%
+  summarise(mean=mean(weight,na.rm=TRUE),
+            sd=sd(weight,na.rm=TRUE),
+            n=n(),
+            se=sd/sqrt(n), 
+            na.rm=TRUE)
+mass_sex
+#wilcox.test(weight ~ sex, data= ec_size_sex)
+
+ec_size_sex_filt <- dfmass_captures %>% 
+  ungroup()%>% 
+  filter(trial!="post")
+t.test(weight ~ sex, data= ec_size_sex_filt)
+
+```
+### rank distribution
+
+```{r}
+
+glimpse(ec_size)
+
+id_attr <-  ec_size %>% 
+  ungroup() %>% 
+  filter(trial!="post", dom_ec!="")
+
+#### all bins excluding focals
+# filter out focal birds (could skew the results)
+focals <- c("BBB", "GPG", "OPP")
+ec_size <- ec_size %>%
+  filter(!id %in% focals)
+
+# model diagnostics
+ggplot(data = id_attr , aes(sample = dom_ec)) +
+  stat_qq() +
+  stat_qq_line()
+
+ggplot(id_attr, aes(x = bin, y = dom_ec)) +
+  geom_point() +
+  stat_smooth(method = "lm")
+
+m <- lm(dom_ec ~ weight, data =id_attr)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))
+d_outliers
+
+id_attr[c(1), ]
+id_attr[c(20), ]
+id_attr[c(34), ]
+
+# which distribution?
+range(id_attr$dom_ec, na.rm=TRUE)
+
+## beta distribution
+```
+
+
+	
+	
+
+###rank ~ mass
+
+We used a generalized mixed model for the effect of size on rank for the bins right before and right after each perturbation event and excluded the bins without weight.
+
+weight at capture 1 for both bin 1 and 2
+weight at capture 2 for bins 5 and 6
+weight at capture 3 for bins 9 and 10
+
+Check! I get same results for when focal individuals are included and when they are excluded
+```{r}
+glimpse(ec_size)
+sort(unique(ec_size$bin))
+ec_size$id <- as.factor(ec_size$id)
+ec_size$bin <- as.factor(ec_size$bin)
+
+ec_size_noNA <- ec_size %>%
+  filter(weight!="") # , bin %in% c(1,5,9)  , bin %in% c(2,6,10)
+  
+# beta regression
+beta.mass<- glmmadmb(power~ weight +  (1|id) , 
+                 data = ec_size_noNA,
+                 family="beta")
+beta.null <- glmmadmb(power~ 1 +  (1|id), 
+                 data = ec_size_noNA,
+                 family="beta")
+beta.fix <- betareg(power~ weight  , 
+                 data = ec_size_noNA)
+
+AIC(beta.mass, beta.null, beta.fix)
+
+summary(beta.massR1)
+
+lrtest(beta.massR1, beta.null)
+
+## excluding focal birds
+ecsize <- ec_size %>%
+  filter(weight!="", !id %in% c("BBB", "GPG", "OPP")) # , bin %in% c(1,5,9)
+unique(ecsize$id)  
+
+
+beta.mass<- glmmadmb(power~ weight +  (1|id) , 
+                 data = ecsize,
+                 family="beta")
+beta.null <- glmmadmb(power~ 1 +  (1|id), 
+                 data = ecsize,
+                 family="beta")
+beta.fix <- betareg(power~ weight  , 
+                 data = ecsize)
+
+AIC(beta.mass, beta.null, beta.fix)
+
+summary(beta.mass)
+
+lrtest(beta.mass, beta.null)
+
+# MODEL VALIDATION
+model <- beta.mass
+1-var(residuals(model)/var(model.response(model.frame(model))))
+
+      
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model))) 
+
+
+# odds ratio
+exp(coef(model))
+# E.g., The odds of perching increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
+
+## plot supplemental material----
+
+# with focals
+ggplot(ec_size , aes(x=weight, y=flipped_score)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="body weight (g)", y="power score") +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  facet_wrap(~ bin, nrow=3, ncol=2)
+  #geom_smooth()
+  #geom_abline(slope = -2.38, intercept = -0.17)
+
+ggsave("./figures/plot_rank~mass.pdf")
+
+# without focals
+ggplot(ecsize , aes(x=weight, y=flipped_score)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="body weight (g)", y="power score") +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  facet_wrap(~ bin, nrow=3, ncol=2)
+  #geom_smooth()
+  #geom_abline(slope = -2.38, intercept = -0.17)
+
+ggsave("./figures/FigSM3_rank~mass_nofocals.pdf")
+
+```
+
+
+
+### rank ~ sex
+
+Permutations of binning with sex as we want to see per bin whether sex differences exist.
+
+-	Reassign sex for all bins once, find rank for each bin; how does sex correlate with rank (12 correlations). Column for each bin (average correlation of rank on sex for all bins). 
+
+1. Reassign sex for all bins once
+2. find rank for each bin
+3. regression between sex and rank (12 bins thus 12 regressions)
+
+-> row = sex, column = bins 
+
+4. 	Plot observed correlation on x axis and randomized correlation on y axes  
+
+
+	regress rank on sex (arrange by power score through reorder funtion within ggplot) then plot by bin and combine plots per trial. 
+
+Anidom::plot_ranks(ranks, plot.CIs = FALSE, ordered.by.rank = TRUE, 
+	identities = NULL, plot.identities = TRUE, colors = NULL)
+
+Bins (rank assessment points): 2 and 3, 6 and 7,  10 and 11 -> these are the bins where the focal is removed. 
+
+
+```{r sex on rank}
+
+
+# add sex to rank df
+ec_sex <- ec_rankXbin %>% 
+  group_by(bin) %>%
+  left_join(birdID_select, by="id") 
+
+ec_sex_wide <- ec_rankXbin %>% 
+  group_by(bin) %>%
+  left_join(birdID_select, by="id") %>%
+  dplyr::select(id,sex, bin, power) %>%
+  arrange(bin) %>%
+  pivot_wider(names_from=bin,
+              names_prefix = "bin",
+              values_from=power)
+
+
+glimpse(ec_sex_wide)
+#sort(unique(ec_sex$bin))
+#ec_sex$sex <- as.factor(ec_sex$sex)
+#ec_sex$bin <- as.factor(ec_sex$bin)
+#ec_sex$id <- as.factor(ec_sex$id)
+
+set.seed(7)
+	# Randomise sex
+	s <- sample(1:length(ec_sex_wide$id))
+	s
+	ec_sex$sex.random <- ec_sex_wide$sex[s]
+
+	# long format for loop
+	ec_sex_long <- ec_sex_wide %>% 
+	  dplyr::select(id, sex,sex.random, everything()) %>%
+	  pivot_longer(cols = !c("id", "sex", "sex.random"),
+	               names_to = "bin", 
+	               values_to = "dom_ec")
+
+# make empty data frame to put data in
+sexresult <- data.frame(run.code=character(),
+                      obs.coef.sex.lm=numeric(),
+                      ran.coef.sex.lm=numeric(),
+                      obs.coef.sex.beta=numeric() ,
+                      ran.coef.sex.beta=numeric())
+
+# run = 1
+
+start.time <- Sys.time()
+
+loopby<-unique(ec_sex_long$bin)
+
+#i=1
+
+for(i in seq_along(unique(ec_sex_long$bin))){
+  run.code <- loopby[i]
+  print(run.code)
+  run.data <- subset(ec_sex_long , bin==run.code)
+  
+  obs_sex <- wilcox.test(run.data$dom_ec ~ run.data$sex)
+obs.coef.sex.lm <- coefficients(lm(dom_ec ~ sex,
+                                   data=run.data))[2]	
+ran.coef.sex.lm <- coefficients(lm(dom_ec ~ sex.random,
+                                   data=run.data))[2]	
+
+obs.coef.sex.beta <- coefficients(betareg(dom_ec ~ sex, 
+                                          data=run.data))[2]	
+ran.coef.sex.beta <- coefficients(betareg(dom_ec ~ sex.random, 
+                                          data=run.data))[2]
+
+  # combine in dataframe
+  pool <- cbind.data.frame(run.code,
+                         obs.coef.sex.lm,
+                         ran.coef.sex.lm,
+                         obs.coef.sex.beta ,
+                         ran.coef.sex.beta)
+
+  sexresult <-rbind(sexresult, pool )
+
+}
+
+end.time <- Sys.time()
+
+#Time to run:
+end.time - start.time
+
+
+head(sexresult)
+
+# plot 
+
+# beta regression
+cor.test(sexresult$obs.coef.sex.beta, sexresult$ran.coef.sex.beta, method="spearman")
+cor(sexresult$obs.coef.sex.beta, sexresult$ran.coef.sex.beta, method="spearman")
+
+ggplot(sexresult, aes(x=obs.coef.sex.beta, y=ran.coef.sex.beta)) +
+  geom_point(size=5) +
+  theme_classic() + 
+  labs(x="observed estimate",
+       y="random estimate") +
+  theme(text = element_text( colour = "#2F4858"),
+        axis.title = element_text(colour = "#2F4858", size = 24),
+        axis.text = element_text(colour = "#2F4858", size = 24),
+        #axis.text.y=element_blank(), # remove y-axes labels
+        #axis.text.x=element_blank(), # remove x-axis labels
+        #axis.ticks.x=element_blank(),
+        
+        #legend.position = "none",
+        #legend.text = element_text(colour = "#2F4858", size = 24),
+        #legend.title = element_text(colour = "#2F4858", size = 24),
+        panel.grid = element_blank(),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+        plot.caption = element_text(size = 10), 
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm"))
+	ggsave("./output/plot_betareg_sex_rank.pdf", width=8, heigh = 6)
+	
+# linear regression
+cor.test(sexresult$obs.coef.sex.lm, sexresult$ran.coef.sex.lm, method="spearman")
+cor(sexresult$obs.coef.sex.lm, sexresult$ran.coef.sex.lm, method="spearman")
+
+mean(sexresult$obs.coef.sex.lm)
+mean(sexresult$ran.coef.sex.lm)
+
+	ggplot(sexresult, aes(x=obs.coef.sex.lm, y=ran.coef.sex.lm)) +
+  geom_point(size=5) +
+  theme_classic() + 
+  labs(x="observed estimate",
+       y="random estimate") +
+  theme(text = element_text( colour = "#2F4858"),
+        axis.title = element_text(colour = "#2F4858", size = 24),
+        axis.text = element_text(colour = "#2F4858", size = 24),
+        #axis.text.y=element_blank(), # remove y-axes labels
+        #axis.text.x=element_blank(), # remove x-axis labels
+        #axis.ticks.x=element_blank(),
+        
+        #legend.position = "none",
+        #legend.text = element_text(colour = "#2F4858", size = 24),
+        #legend.title = element_text(colour = "#2F4858", size = 24),
+        panel.grid = element_blank(),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+        plot.caption = element_text(size = 10), 
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm"))
+	ggsave("./figures/plot_lm_sex_rank.pdf", width=8, heigh = 6)
+	
+
+### plot SM4 -----
+glimpse(ec_sex)
+
+# plot sex on rank (loop through bins)
+#showbins<- c(2,3,6,7,10,11)
+
+loopby <- sort(unique(ec_sex$bin))
+
+i=1
+
+
+# create a loop to read in your data
+for (i in 1:length(loopby)) {
+  focal.period <- loopby[i] #extract long name of data file of interest (focal)
+  plot.data <- subset(ec_sex, bin==focal.period)
+
+plot_sexXbin <- ggplot(plot.data, 
+                       aes(x=reorder(id, -power), y= power, color=sex)) +
+  geom_point(size=5) + 
+  #scale_y_continuous(limits = c(0.0-0.2)) +
+  theme_classic() +
+  theme(axis.title = element_blank(),
+        #axis.text.y=element_blank(),
+        axis.text.x=element_blank(),
+        #axis.ticks.x=element_blank(),
+        legend.position = "none",
+        )
+
+#jpeg(filename= paste("./figures/plot_sexrank_",i,".png", sep= ""))
+ #  print(plot_sexXbin)
+  # dev.off()
+
+ggsave(paste("./figures/FigSM4_corr_sex_rank",i,".pdf"), width=3, height = 3)
+
+}
+
+```
+
+### mass change
+
+-	Removal stressful from being isolated and away from group -> perhaps couldn’t retake rank, 
+o	analyse with change in mass before removal for focal (not significant)
+o	compare change in mass between focal and other birds of mass per perturbations. (Mass change in percentage (lose weight -> negative))
+
+```{r}
+size<- read.csv("./data/morphometrics_focals_2021.csv") %>%
+  dplyr::select(date, perturbation, id, weight)
+
+## outliers -> exclude instead of taking another weight
+#size %>%
+#  group_by(perturbation) %>%
+#  identify_outliers(weight) # capture 2 is not included in this analysis
+
+# BBB for capture 6 weight of 86.80 -> outlier (use weight of capture 7 instead)
+#size[179,4] <- 113.0 # NB! 
+# OOO for capture 5 weight of 72.82 -> incorrect outlier (use weight of capture 6 instead)
+#size[105,4] <- 119.54
+# POP for capture 5 weight of 121.4 -> # exclude outlier as POP has a bird bag weight of only 129.94, while all the other bird bag weights are around 142-146 range
+
+size <- size %>%
+  filter(!weight %in% c(72.82, 86.80, 121.4)) %>%
+  drop_na()
+
+```
+
+
+
+#### focals body mass change
+in percentage and body weight gain positive values while weight loss negative values
+```{r mass change focals}
+
+focal_weights<- c("capture3","reintroduction1","capture4","reintroduction2","capture5","reintroduction3","capture6")
+
+mass_mean <- size %>% 
+  dplyr::select(date, perturbation, id, weight) %>%
+  separate(perturbation, 
+           c("capture", "type"), 
+           sep="_", remove = FALSE
+             ) %>% 
+  dplyr::filter(capture %in% focal_weights, id %in% c("BBB", "GPG", "OPP")) %>%
+  group_by(id) %>%
+  arrange(id, date) %>%
+  mutate(#weighttime2=lead(weight),
+         #masschange=weighttime2-weight, 
+         mean=mean(weight)) %>% #,massperc = weight/mean*100
+  pivot_wider(-c(date,perturbation, capture),
+              names_from = type,
+              values_from = weight) %>%
+  dplyr::select(id,  mean)
+
+# combine mass change in dataframe
+focals <- c("BBB", "GPG", "OPP")
+size_focals <- size %>% 
+  dplyr::select(date, perturbation, id, weight) %>%
+  separate(perturbation, 
+           c("capture", "type"), 
+           sep="_", remove = FALSE
+             ) %>% 
+  dplyr::filter(capture %in% focal_weights, id %in% c("BBB", "GPG", "OPP")) %>%
+  mutate(weight_t2 = lead(weight), 
+    weight_change=weight_t2-weight)
+
+
+removal_massBBB <- 119.40-119
+removal_massGPG <- 114-116.3 
+removal_massOPP <- 117.37-116.80
+removal_mass <- rbind(removal_massBBB, removal_massGPG, removal_massOPP) 
+
+reintro_massBBB <- 112.8-119.40
+reintro_massGPG <- 114.2-114
+reintro_massOPP <- 110-117.37
+reintro_mass <- rbind(reintro_massBBB, reintro_massGPG, reintro_massOPP) 
+
+#colnames(mass_focals$...3) <- c("reintro")
+
+trial_massBBB <- 112.8-119
+trial_massGPG <- 114.20-116.30
+trial_massOPP <- 110-116.80
+trial_mass <- rbind(trial_massBBB, trial_massGPG, trial_massOPP) 
+
+masschange_focals <- cbind(mass_mean,removal_mass, reintro_mass, trial_mass) %>%
+  rename(removal='...3', reintro='...4', trial='...5') %>%
+  mutate(perc_removal=removal/mean*100,
+         perc_reintro=reintro/mean*100,
+         perc_trial=trial/mean*100)
+
+
+
+# import created df
+focal_masschange <- read.csv("output/focal_mass_change.csv") %>%
+  mutate(removal=change_removal/mean*100,
+         reintroduction=change_reintroduction/mean*100,
+         trial=change_trial/mean*100)
+
+ 
+# differences in weight change removal
+wilcox.test(focal_masschange$start_removal, focal_masschange$upon_reintroduction, 
+            paired = TRUE)
+# differences in weight change reintroduction
+wilcox.test(focal_masschange$upon_reintroduction, focal_masschange$end_trial, 
+            paired = TRUE)
+# differences in weight change complete trial
+wilcox.test(focal_masschange$start_removal, focal_masschange$end_trial, 
+            paired = TRUE)
+
+# plot mass change with df in long format
+focal_long <- focal_masschange %>%
+  dplyr::select(id, removal, reintroduction, trial) %>%
+  pivot_longer(-id,
+               c("removal", "reintroduction", "trial"),
+               names_to = "time",
+               values_to = "mass_change")
+focal_long$time[focal_long$time==""]<-"removal"
+
+focal_long$period <- factor(focal_long$time, 
+                            levels=c("removal", "reintroduction", "trial"))
+
+plot_masschangefocal_removal <- focal_long %>%
+  filter(period=="removal") %>%
+  ggplot( aes(x=id, y=mass_change, fill=id)) +
+  geom_col( colour = "black") +
+  scale_y_continuous(limits = c(-7.5, 5.0)) +
+  #facet_wrap(~period) +
+  labs(x= "perturbed bird ID", y= "weight change (%)", title="8-day removal") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none")
+#ggsave("figures/figure_focal_mass_change_time.pdf")
+
+plot_masschangefocal_reintro <- focal_long %>%
+  filter(period=="reintroduction") %>%
+  ggplot( aes(x=id, y=mass_change, fill=id)) +
+  geom_col( colour = "black") +
+  scale_y_continuous(limits = c(-7.5, 5.0)) +
+  #facet_wrap(~period) +
+  labs(x= "", y= "", title="8-day reintroduction") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none",
+        axis.text.y = element_blank())
+#ggsave("figures/figure_focal_mass_change_time.pdf")
+
+
+focal_long %>%
+  filter(period=="trial") %>%
+  ggplot( aes(x=id, y=mass_change, fill=id)) +
+  geom_col() +
+  #facet_wrap(~period) +
+  labs(x= "", y= "weight change (%)", title="at trial conclusion") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none")
+#ggsave("figures/figure_focal_mass_change_time.pdf")
+
+ggplot(focal_long, aes(x=period, y=mass_change, fill=id)) +
+  geom_col() +
+  facet_wrap(~id) +
+  labs(x= "", y= "weight change focal bird (%)") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none")
+
+
+ focal_long %>% filter(period!="trial") %>%
+  ggplot( aes(x=id, y=mass_change, fill=id)) +
+  geom_col() +
+  facet_wrap(~period) +
+  labs(x= "perturbed bird ID", y= "weight change (%)") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none") +
+  scale_y_continuous( limits=c(-7.5, 5))
+plot_masschangefocal 
+#ggsave("figures/plot_focal_mass_change.pdf", height = 6, width = 7)
+
+
+
+
+                                              
+```
+
+
+####group vs focal mass change
+Exclude focal birds for only their respective trial 
+```{r group mass change}
+focal_weights<- c("reintroduction1","reintroduction2","reintroduction3")
+long_perturb <- c("capture3","capture4","capture5","capture6")
+
+dfmass_long <- size %>% 
+  dplyr::select(date, perturbation, id, weight) %>%
+              pivot_wider(-date,
+              names_from = perturbation,
+              values_from = weight)
+
+
+
+mass_change_all <- size %>% 
+  dplyr::select(date, perturbation, id, weight) %>%
+  separate(perturbation, 
+           c("capture", "type"), 
+           sep="_", remove = FALSE
+             ) %>% 
+  dplyr::filter(capture %in% long_perturb) %>%
+  group_by(id) %>%
+  arrange(id, date) %>% 
+  mutate(weighttime2=lead(weight),
+         masschange=weighttime2-weight, 
+         mean=mean(weight)) %>% # ,massperc = masschange/totalavemass*100
+  rename(weighttime1=weight)  
+
+
+# exclude focal birds' mass for their trial
+
+mass_change <- mass_change_all %>%
+  filter(!type =="removal1"| !id=="BBB") %>%
+  filter(!type =="removal2"| !id=="GPG") %>%
+  filter(!type =="removal3"| !id=="OPP")
+
+
+totalavemass <- mean(mass_change$weighttime1, na.rm=T)
+
+
+# summarize excluding focals ----
+
+summ_mass <- mass_change %>%
+  filter(!id %in% c("BBB", "GPG", "OPP")) %>%
+  group_by(type) %>%
+  summarize(mean=mean(masschange, na.rm = TRUE), 
+            sd=sd(masschange, na.rm = TRUE), 
+            n=n())
+
+
+
+glimpse(mass_change)
+masschange_trials <- mass_change %>% 
+  filter(type %in% c("removal1", "removal2", "removal3")) 
+masschange_trials$trial <- factor(masschange_trials$type,
+                                       levels=c("removal1",
+                                                "removal2","removal3"),
+                                       labels=c("trial 1",
+                                                "trial 2",
+                                                "trial 3"))
+# stats : distribution ----
+x<-masschange_trials$masschange
+#x<-masschange_trials_exclout$masschange
+range(x, na.rm=T)
+
+library(rstatix)
+plot(x)
+identify(x)
+shapiro.test(x)
+#anova_test() 
+
+# shapiro test
+masschange_trials %>%
+  group_by(type) %>%
+  shapiro_test(masschange) # p >0.05, data normally distributed
+
+ggqqplot(masschange_trials, "masschange", facet.by = "type")
+
+#ggplot(data = masschange_trials_exclout , aes(sample = x)) +
+#  stat_qq() +
+#  stat_qq_line()
+
+#ggplot(masschange_trials_exclout, aes(x = type, y = x)) +
+#  geom_point() +
+#  stat_smooth(method = "lm")
+
+m <- lm(x ~ type, data = masschange_trials)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))
+d_outliers # no outliers when log-transformed; 2,31,33,34
+
+masschange_trials_exclout <- masschange_trials[-c(50, 51),] %>%
+  ungroup()
+
+masschange_trials %>%
+  group_by(type) %>%
+  identify_outliers(masschange)
+
+masschange_trials[c(2,31,31,34),] # no outliers
+
+
+# does body weight change per trial
+model<-lmer(masschange~type + (1|id), data = masschange_trials)
+#model<-lmer(masschange~id+ (1|capture), data = masschange_trials_exclout)
+m0<-lmer(masschange~ 1 + (1|id), data = masschange_trials)
+
+AIC(model, m0)
+summary(model)
+anova(model, m0)
+confint(model)
+
+# Model Diagnostics
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model)))
+
+library(DHARMa)
+simulationOutput <- simulateResiduals(fittedModel = model, n = 250)
+simulationOutput$scaledResiduals
+plot(simulationOutput, asFactor = TRUE)
+plotResiduals(playback$playback, simulationOutput$scaledResiduals, quantreg = T)
+simulationOutput = recalculateResiduals(simulationOutput , group = playback$orderkey)
+testDispersion(simulationOutput)
+
+
+  # plot ----
+
+ set.seed(42)
+custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
+                    RColorBrewer::brewer.pal(8, "Dark2"),
+                    RColorBrewer::brewer.pal(3, "Set2")) %>% 
+  sample(n_distinct(mass_change$id))
+
+masschange_trials$comparison <- factor(masschange_trials$type,
+                                       levels=c("removal1",
+                                                "removal2","removal3"),
+                                       labels=c("1 & 2",
+                                                "2 & 3",
+                                                "3 & final"))
+
+plot_dmass <- masschange_trials %>%
+  mutate(perc_change=masschange/mean*100) %>%
+  ggplot( aes(x=comparison, y=perc_change)) + 
+  geom_hline(yintercept=0) +
+   labs(y="weight change (%)",
+       x="comparison between capture events", 
+       title = "16-day trial period") +
+  
+  # add half-violin from ggdist package 
+  ggdist::stat_halfeye(
+    adjust = .5, 
+    width = .5, 
+    .width = 0, 
+    justification = -.3, 
+    point_colour = NA) + 
+  
+  # add boxplot
+  geom_boxplot(
+    width = .25, 
+    outlier.shape = NA) +
+  
+  # add points in jitter position
+
+ ggdist::stat_dots(
+    dotsize = 2,
+    side="left",
+    justification=1.15,
+    binwidth=0.15
+  ) +
+    # other way to add points
+# geom_point(
+#    size = 2,
+#    alpha = .3,
+#    position = position_jitter(
+#    seed = 1, width = .15 )) + 
+  # highlight focal birds
+  #annotate('point', x= .85, y=-5.3264605, size = 4, color = "#1f78b4" ) +
+  #annotate('point', x= 1.85, y=-1.8172378, size = 4, color = "#6a51a3") +
+  #annotate('point', x= 2.85, y=-5.755201, size = 4, color = "#ff7f00" ) +
+  
+  # adjust theme and color
+  theme_classic() + 
+  #scale_color_manual(values= "black") + #alpha(c("#1f78b4","#6a51a3","#ff7f00" ))
+  #scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6))+
+  theme(legend.position = "none",
+        #axis.text.y = element_blank(),
+        axis.text = element_text(), #colour = "#2F4858", size = 24
+        axis.title.x = element_text() #colour = "#2F4858", size = 24
+        ) +
+  coord_cartesian(xlim = c(0.8, NA))
+  #scale_fill_tq() +
+  #coord_flip() 
+  #coord_cartesian(xlim = c(1.2, NA), clip = "off") +
+  #geom_text(aes(label = length(playback), y = 10)) +
+
+
+  plot_dmass
+  
+#ggsave("./figures/group_weight_change_focalhighlight.pdf")
+
+#       ,width = 90, height = 90, units = "mm")
+
+```
+
+
+#### combine plots body mass
+```{r}
+
+
+ggarrange(plot_masschangefocal_removal,
+          plot_masschangefocal_reintro,
+          plot_dmass, 
+          nrow=1, 
+          labels = c("(a)", "(b)","(c)"))
+ggsave("./figures/Fig2_weight_change_updated.pdf",
+       width = 180, height = 85, units = "mm") # height = 90 seems to be ok, 60 is too low, 75 just too low
+
+
+```
+
+
+
+
+
+
+
+

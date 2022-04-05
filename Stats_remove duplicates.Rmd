@@ -1,0 +1,311 @@
+---
+title: "Stats_check removal data"
+author: "Annemarie van der Marel"
+date: "05/04/2022"
+output: html_document
+---
+
+#Load packages
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(purrr)
+library(domstruc) #install_github("danm0nster/domstruc")
+library(ggbump)
+library(lubridate)
+library(ggthemes)
+library(ggrepel)
+library(ggpubr)
+library(betareg)
+library(glmmADMB)
+library(lme4)
+library(lmtest)
+
+```
+
+
+# Import data
+
+```{r data import, echo=FALSE}
+## agonistic interaction data
+behave_raw <- read.csv("./data/2021_MOPA_agonistic interactions.csv") %>%
+  dplyr::select(-X)  # whole field season
+glimpse(behave_raw)
+
+# bird list
+birdIDs_capture<- read.csv("./data/2021_MOPA_IDs.csv") 
+birdIDs <- birdIDs_capture %>%
+  dplyr::select(mark_id)
+
+
+
+
+```
+
+
+# Ready data  
+
+
+## bird list
+change for each perturbation as different birds are removed
+```{r}
+##list of all valid color combinations
+# birdIDs$mark_id = all 20 birds
+birdIDs_removal1 <- birdIDs %>% filter(mark_id!="BBB")
+birdIDs_removal2 <- birdIDs %>% filter(mark_id!="GPG")
+birdIDs_removal3 <- birdIDs %>% filter(mark_id!="OPP")
+
+# change each time
+bird.list <- sort(unique(birdIDs$mark_id)) 
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+
+length(dyad.list$dyadID) # 380 dyads with 20 birds
+```
+
+
+## Remove duplicates
+
+We remove duplicates in a more conservative way. We remove duplicates using crowds and displacements combined from the beginning, results in less agonistic events but mistakes per behavior (e.g., entered crowd while it had to be displacement) are excluded. 
+
+
+First, we subset data per long social perturbation period per group size (20 or 19 birds). THis is to check whether we did not accidentally observe the removed focal bird during the removal period. 
+
+select time period:
+pre-removal         (bin==1)
+removal 1           (bin==2 | bin==3)
+reintroduction 1    (bin==4 | bin==5)
+removal 2           (bin==6 | bin==7)
+reintroduction 2    (bin==8 | bin==9)
+removal 3           (bin==10 | bin==11)
+reintroduction 3    (bin==12 | bin==13)
+
+removal bins 16-day perturbations (19 birds)
+removal 1: BBB (bin==2 | bin==3)
+removal 2: GPG (bin==6 | bin==7)
+removal 3: OPP (bin==10 | bin==11)
+
+NB: bins 0 and 13 are bordering periods, not used in analyses, expect bin 13 that is used for the recovery measures of the focal bird OPP
+
+```{r select perturbation periods}
+
+## periods with 20 birds
+bin20birds<- c(0, 1, 4, 5, 8, 9, 12, 13)
+
+behave_agg20birds <- behave %>%
+  dplyr::filter(bin %in% bin20birds) %>% # long perturbation bins with 20 birds 
+  dplyr::select(sessionKEY, session_start_timeStamp, type, bin, date, time, actor, subject, behavior)
+
+unique(behave_agg20birds$bin)
+unique(behave_agg20birds$date)
+unique(behave_agg20birds$actor)
+unique(behave_agg20birds$subject)
+
+bird.list <- sort(unique(birdIDs$mark_id))
+length(bird.list) # should be 20
+bird.list
+
+
+## removal (19 birds)
+behave_totalagg_removal <- behave %>%
+  dplyr::filter(bin==2 | bin==3) # all aggression -> both at feeder and nonfeed
+# Double check whether removed bird  is removed during removal experiment
+unique(behave_totalagg_removal$bin)
+unique(behave_totalagg_removal$actor)
+unique(behave_totalagg_removal$subject)
+
+bird.list <- sort(unique(birdIDs_removal1$mark_id)) # change each time
+length(bird.list) # should be 19
+bird.list
+```
+
+
+```{r remove duplicates conservative method X bin}
+#### Remove duplicates for displacements and crowds ####
+##more conservative: removing duplicates by crowds and displacements combined
+#behave_totalagg<-behave_totalagg_removal
+
+# filter displacement & crowd data from all data
+aggDC <- behave_agg20birds # behave_totalagg_removal # behave_agg20birds
+
+str(aggDC)
+length(aggDC$sessionKEY)
+
+# keep only observations where the actor is in the list of bird IDs
+aggDC.goodID <- subset(aggDC, actor %in% bird.list) 
+
+# keep only observations where the actor (found above) and the subject are both in the list of bird IDs
+aggDC.goodID <- subset(aggDC.goodID, subject %in% bird.list)
+
+sort(unique(aggDC.goodID$actor))
+sort(unique(aggDC.goodID$subject))
+
+## for total agonistic events (crowds and displacements combined)
+#finds n displacements and crowds by sessionKEY, date, time, actor, subject
+dyad.totalagg.key <- aggDC.goodID %>% 
+  dplyr::group_by(sessionKEY, bin, date, time,actor, subject) %>%  # removed , behavior
+  tally() # counts behaviors that were observed within the same minute
+
+#finds max agg per actor by date, time. Return just that summary
+dyad.totalagg.maxkey <- dyad.totalagg.key %>% 
+  group_by(actor, subject,bin,  date, time) %>% 
+  slice(which.max(n)) %>% # n.aggXaggXkey if summarise, n if tally
+  ungroup()
+head(dyad.totalagg.maxkey)
+
+#finds n agg per actor by date for summarized/trimmed data
+dyad.totalaggXbin <- dyad.totalagg.maxkey %>% 
+  group_by(actor, subject, bin) %>% 
+  summarise(n.aggXbin=sum(n)) %>% 
+  ungroup()
+head(dyad.totalaggXbin)
+
+
+# rename
+dyad.totalaggXbin.20birds <- dyad.totalaggXbin
+#dyad.totalaggXbin.removal1 <- dyad.totalaggXbin
+#dyad.totalaggXbin.removal2 <- dyad.totalaggXbin
+#dyad.totalaggXbin.removal3 <- dyad.totalaggXbin
+
+
+
+
+## Summarize displacements & crowds combined --> total aggression
+
+head(dyad.totalaggXbin) # crowds and displacement combined from the start, which is more conservative
+str(dyad.totalaggXbin)
+
+# check 
+unique(dyad.totalaggXbin$actor)
+length(unique(dyad.totalaggXbin$actor))
+unique(dyad.totalaggXbin$subject)
+length(unique(dyad.totalaggXbin$subject))
+sort(unique(dyad.totalaggXbin$bin))
+
+sum(dyad.totalaggXbin$n.aggXbin)
+
+# summarize total aggression events per day
+sum.aggDCXbin_conservative <-dyad.totalaggXbin %>%
+  group_by(bin) %>%
+  summarize(n.agg = sum(n.aggXbin), n.dyads=length(actor))
+head(sum.aggDCXbin_conservative)
+
+# rename total aggression by period
+#n.aggDC.20birds <- sum(sum.aggDCXbin_conservative$n.agg)
+#n.aggDC.removal1 <- sum(sum.aggDCXbin_conservative$n.agg)
+#n.aggDC.removal2 <- sum(sum.aggDCXbin_conservative$n.agg)
+#n.aggDC.removal3 <- sum(sum.aggDCXbin_conservative$n.agg)
+
+
+## total aggression (all rank assessment periods 1-12 in one analyses)
+total_agg <- dyad.totalaggXbin %>%
+  filter(!bin %in% c(0,13))
+sort(unique(total_agg$bin))
+sum(total_agg$n.aggXbin) # 22746 for all bins combined 
+
+
+# per group size 
+n.aggDC20birds <- dyad.totalaggXbin.20birds %>%
+  filter( !bin %in%c(0,13)) %>%
+  summarise(n=sum(n.aggXbin))
+
+total_agg <- n.aggDC20birds$n + n.aggDC.removal1 + n.aggDC.removal2 + n.aggDC.removal3 # should be the same as filtering behave_agg dataset for all bins combined.  
+```
+
+we did not observe removed birds during their respective removal periods, therefore we can filter without subsetting for group size. 
+
+
+```{r remove duplicates}
+behave<-behave_raw
+
+# check data
+unique(behave$behavior)
+unique(behave$date)
+length(unique(behave$date))
+sort(unique(behave$bin)) 
+unique(behave$actor)
+unique(behave$subject)
+
+
+#### Remove duplicates for displacements and crowds ####
+##more conservative: removing duplicates by crowds and displacements combined
+#behave_totalagg<-behave_totalagg_removal
+
+# filter displacement & crowd data from all data
+aggDC <- behave
+
+str(aggDC)
+length(aggDC$sessionKEY)
+
+# keep only observations where the actor is in the list of bird IDs
+aggDC.goodID <- subset(aggDC, actor %in% bird.list) 
+
+# keep only observations where the actor (found above) and the subject are both in the list of bird IDs
+aggDC.goodID <- subset(aggDC.goodID, subject %in% bird.list)
+
+sort(unique(aggDC.goodID$actor))
+sort(unique(aggDC.goodID$subject))
+
+## for total agonistic events (crowds and displacements combined)
+#finds n displacements and crowds by sessionKEY, date, time, actor, subject
+dyad.totalagg.key <- aggDC.goodID %>% 
+  dplyr::group_by(sessionKEY, bin, date, time,actor, subject) %>%  # removed , behavior
+  tally() # counts behaviors that were observed within the same minute
+
+#finds max agg per actor by date, time. Return just that summary
+dyad.totalagg.maxkey <- dyad.totalagg.key %>% 
+  group_by(actor, subject,bin,  date, time) %>% 
+  slice(which.max(n)) %>% # n.aggXaggXkey if summarise, n if tally
+  ungroup()
+head(dyad.totalagg.maxkey)
+
+#finds n agg per actor by date for summarized/trimmed data
+dyad.totalaggXbin <- dyad.totalagg.maxkey %>% 
+  group_by(actor, subject, bin) %>% 
+  summarise(n.aggXbin=sum(n)) %>% 
+  ungroup()
+head(dyad.totalaggXbin)
+
+## total aggression (all rank assessment periods 1-12 in one analyses)
+total_agg <- dyad.totalaggXbin %>%
+  filter(!bin %in% c(0,13))
+sort(unique(total_agg$bin))
+sum(total_agg$n.aggXbin) # 22746 for all bins combined 
+```
+
+
+Both datasets are the same 
+
+
+
+```{r}
+# all periods combined 
+glimpse(dyad.totalaggXbin)
+length(dyad.totalaggXbin$n.aggXbin)
+sum(dyad.totalaggXbin$n.aggXbin)
+
+
+# combine datasets
+dyad.aggXbin.longperturb <- bind_rows(dyad.totalaggXbin.20birds, 
+                                      dyad.totalaggXbin.removal1, 
+                                      dyad.totalaggXbin.removal2, 
+                                      dyad.totalaggXbin.removal3)
+head(dyad.aggXbin.longperturb)
+length(dyad.aggXbin.longperturb$n.aggXbin)
+sum(dyad.aggXbin.longperturb$n.aggXbin)
+
+# check dataframes
+checkdfs <- full_join(dyad.totalaggXbin, dyad.aggXbin.longperturb )
+
+# save output
+write.csv(dyad.aggXbin.longperturb, "./output/2021_aginteractions_socialperturb.csv")
+
+```
+

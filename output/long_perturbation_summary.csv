@@ -1,0 +1,15 @@
+trial,bin,rank_assessment,perturbation,focal_ID,obs_days,hours_observed,person_hours,birds,agonistic_events,interacting_dyads
+0,10,0,pre experiment,,3,21.55,75.95,20,1983,236
+0,11,1,rank assessment,,3,22.85,117.02,20,2875,256
+1,12,2,removal,BBB,3,21.82,81.93,19,1988,227
+1,13,3,removal,BBB,3,22.58,83.72,19,1721,226
+1,14,4,reintroduction,BBB,3,26.7,87.32,20,2928,263
+1,15,5,reintroduction,BBB,3,21.38,80.55,20,1856,235
+2,16,6,removal,GPG,3,20.95,79.47,19,2218,213
+2,17,7,removal,GPG,3,19.68,72.97,19,1887,220
+2,18,8,reintroduction,GPG,3,18.37,66.98,20,1709,218
+2,19,9,reintroduction,GPG,3.5,20.97,77.45,20,1615,224
+3,20,10,removal,OPP,3,17.82,66.57,19,897,178
+3,21,11,removal,OPP,3,21.38,80.53,19,2131,224
+3,22,12,reintroduction,OPP,3,20.98,86.43,20,2281,236
+3,23,13,post experiment,OPP,2,14.43,53.62,20,1241,204
