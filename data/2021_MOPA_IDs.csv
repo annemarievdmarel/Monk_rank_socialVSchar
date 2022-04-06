@@ -1,21 +1,21 @@
-band_id,sex,population,year_captured,site_captured,mark_id
-BB1253,male,new_captives,2021,Galloway,BBB
-BB1251,male,new_captives,2021,Galloway,OPP
-BB1255,male,new_captives,2021,Galloway,POO
-BB1252,female,new_captives,2021,Galloway,PPB
-BB1241,female,new_captives,2021,Perrine,POP
-BB1245,male,new_captives,2021,Perrine,OOO
-BB1244,male,new_captives,2021,Perrine,PGG
-BB1240,male,new_captives,2021,Perrine,BOB
-BB1242,male,new_captives,2021,Perrine,PPO
-BB1254,female,new_captives,2021,Goulds,OOP
-BB1246,female,new_captives,2021,Goulds,GGO
-BB1250,female,new_captives,2021,Goulds,GGG
-BB1249,female,new_captives,2021,Goulds,PBB
-BB1248,male,new_captives,2021,Goulds,GPG
-BB1218,female,new_captives,2021,Florida City,PBO
-BB1156,male,new_captives,2021,Florida City,GOP
-BB1155,male,new_captives,2021,Florida City,PPP
-BB1154,male,new_captives,2021,Florida City,OGO
-BB1159,male,new_captives,2021,Florida City,GOO
-BB1158,male,new_captives,2021,Florida City,OBB
+band_id,sex,year_captured,site_captured,mark_id
+BB1253,male,2021,Galloway,BBB
+BB1251,male,2021,Galloway,OPP
+BB1255,male,2021,Galloway,POO
+BB1252,female,2021,Galloway,PPB
+BB1241,female,2021,Perrine,POP
+BB1245,male,2021,Perrine,OOO
+BB1244,male,2021,Perrine,PGG
+BB1240,male,2021,Perrine,BOB
+BB1242,male,2021,Perrine,PPO
+BB1254,female,2021,Goulds,OOP
+BB1246,female,2021,Goulds,GGO
+BB1250,female,2021,Goulds,GGG
+BB1249,female,2021,Goulds,PBB
+BB1248,male,2021,Goulds,GPG
+BB1218,female,2021,Florida City,PBO
+BB1156,male,2021,Florida City,GOP
+BB1155,male,2021,Florida City,PPP
+BB1154,male,2021,Florida City,OGO
+BB1159,male,2021,Florida City,GOO
+BB1158,male,2021,Florida City,OBB
