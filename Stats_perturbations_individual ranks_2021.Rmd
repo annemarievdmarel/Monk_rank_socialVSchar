@@ -81,8 +81,7 @@ summary <- read.csv("./output/long_perturbation_summary.csv")
 # individual rank X bin
 powerXbin <- read.csv("./output/MOPA_power score.csv")
 
-# focal rank aggression per bin
-focal_rank_agg <- read.csv("./output/id_level_agg_longperturbation.csv")
+
 
 
 ```
@@ -862,21 +861,23 @@ trial3_recovery <- ec_rankXbin %>%
 ## Do individual characteristics underly rank?
 version April
 
-Look at the effect of body mass and sex on rank for 3 day bin prior the social perturbation experiment (rank assessment point 1). 
+Is rank determined by body weight or does rank affect body weight? causality of body weight on rank
 
-Linear regression of rank ~ body mass * sex 
+1. Does current body mass tell anything about rank? Look at the effect of body mass  on rank for 3 day bin prior the social perturbation experiment (rank assessment point 1). Linear regression of rank ~ body mass
+  -> yes, current body mass affects rank
+2. How much did mass change over initial 44 days and does this mass change influence rank? 
+3. rank change ~ body mass change at 3 different timepoints (Bin 1 and 4; bin 5 and 8; bin 9 and 12)
+
 
 ```{r ready data}
 
 # add size of birds (mass)
 size_all <- read.csv("./data/morphometrics_focals_2021.csv") 
 
-exp_capture_dates <- c("2021-05-19", "2021-06-05", "2021-06-23", "2021-07-05")
+exp_capture_dates <- c("2021-04-05", "2021-05-19", "2021-06-05", "2021-06-23", "2021-07-05")
 
-# size for only capture 1
-size<- read.csv("./data/morphometrics_focals_2021.csv") %>%
-  dplyr::select(date, id, weight) %>%
-  filter(date=="2021-05-19")
+size <- size_all %>%
+  filter(date %in% exp_capture_dates)
 
 unique(size$date) # 2021-05-19 = capture event for body mass prior social perturbation experiment
 
@@ -887,53 +888,136 @@ birdID_select <- birdIDs_capture %>%
   dplyr::select(mark_id, sex) %>%
   rename(id=mark_id)
 
-size_sex <- size %>% 
-  left_join(birdID_select, by="id") 
-
-# add power score
-ec_size_sex <- ec_rankXbin %>% 
-  filter(bin==1) %>% 
-  left_join(size_sex, by="id") %>%
-  dplyr::select(date, id, sex, weight, rank, dom_ec, power) 
 
 
 ```
 Monk parakeets are monomorphic, so first we control whether sex had an effect on rank and body weight
 
+### check weight data
+
+```{r}
+
+# weight bird bag (should be around 145/146 g)
+range(size$weight2, na.rm=TRUE)
+
+range(size$weight1)
+
+range(size$weight, na.rm=TRUE)
+
+
+```
+
+IDs with potentially wrong body mass -> exclude:
+BBB on 2021-04-05 bird bag weight of 112.08 -> 105.8 (too low)
+POP on 2021-06-23 bird bag weight of 129.94 -> 121.4 (too high)
+BOB on 2021-07-08 bird bag weight of 169.77 -> 109.1 (too low)
+
+OOO on 2021-06-23 bird weight of 72.82 -> too low (always around 115/120)
+BBB on 2021-07-05 bird weight of 86.8 -> very low compared to other weights (always above 110)
+PPB on 2021-04-05 bird weight of 86.2 -> very low compared to other weights(always above 100)
+PPB on 2021-04-05 bird weight of 89.2 -> very low compared to other weights(always above 110)
+
+```{r remove outlier weights }
+size_good <- size %>%
+  filter(!weight %in% c(72.82, 86.20, 86.80, 89.20, 109.1, 121.4), weight2!=112.08) %>%  
+  drop_na() %>%
+  dplyr::select(date, id, weight, perturbation)
+
+unique(size_good$date)
+
+# mean body mass 
+mean(size_good$weight)
+sd(size_good$weight)
+```
+
+
 ### sex effect
 ```{r}
-head(size_all)
+head(size_good)
 
 # how many females and males?
 birdID_select %>%
   group_by(sex) %>%
   summarise(n())
 
-# difference between body mass and sex for time point 1
-t.test(weight~sex, ec_size_sex)
+# combine sex to body mass df
+size_sex <- size_good %>%
+  left_join(birdID_select)
 
-summ_mass <- ec_size_sex %>% 
+# difference in body mass?
+summ_mass <- size_sex %>% 
   group_by(sex) %>%
   summarize(mean= mean(weight, na.rm=TRUE),
             sd = sd(weight, na.rm=TRUE)) 
+summ_mass
 
-# difference between rank and sex
-wilcox.test(power~sex, ec_size_sex)
+mean_mass <- size_sex %>%
+  group_by(sex, id) %>%
+  summarize(mean= mean(weight, na.rm=TRUE),
+            sd = sd(weight, na.rm=TRUE)) 
+
+t.test(mean~sex, mean_mass)
+
+summary(aov(weight~sex, data = size_sex))
+
+# body mass all birds/ males/females
+ggplot(size_sex, aes(x=date, y=weight,group=id, color=sex)) +
+         geom_point() + geom_line() +
+  theme_classic()
+
+
+
 
 ```
 As we did not find a significant effect we excluded sex from further analyses. 
 
-### mass effect
+```{r add power score to mass df}
+head(size_sex)
+
+# include bin number to mass df
+ size_sex_exp <- size_sex %>%
+   separate(perturbation, 
+           c("capture", "type"), 
+           sep="_", remove = FALSE
+             )
+head(size_sex_exp)
+size_sex_exp$type[size_sex_exp$type=="storm"] <- "end"
+ 
+ # add power score
+head(ec_rankXbin)
+ec_rankXbin$type[ec_rankXbin$bin==1] <- "removal1"
+ec_rankXbin$type[ec_rankXbin$bin==5] <- "removal2"
+ec_rankXbin$type[ec_rankXbin$bin==9] <- "removal3"
+
+ec_size_sex <- ec_rankXbin %>% 
+  #filter(bin==1) %>% 
+  left_join(size_sex_exp, by=c("id", "type")) %>%
+  dplyr::select(date,type,  id, sex, weight, rank, dom_ec, power) %>%
+  drop_na()
+
+# difference between rank and sex at different time points
+summary(aov(power~sex*type, data = ec_size_sex))
+#wilcox.test(power~sex, ec_size_sex)
+
+```
+
+
+### 1. Does current body mass tell anything about rank?
+Effect of mass on rank when social structure is stable (after 44 days of initial group formation) and just prior the first removal. 
+
 ```{r linear regression}
 head(ec_size_sex)
 
+size_pre <- ec_size_sex %>%
+  filter(type=="removal1")
+
 # which distribution does power have
-ggplot(data = ec_size_sex , aes(sample = power)) +
+ggplot(data = size_pre , aes(sample = power)) +
   stat_qq() +
   stat_qq_line()
 
 
-m <- lm(power ~ weight, data =ec_size_sex)
+m <- lm(power ~ weight, data =size_pre)
 summary(m)
 d <- data.frame(residuals = residuals(m),         # Residuals
                 std_residuals = rstudent(m), # Studentized Residuals
@@ -964,17 +1048,17 @@ ggplot(d, aes(x = observation, y = cooks)) +
 d_outliers <- filter(d, cooks > 4/nrow(d))
 d_outliers
 
-ec_size_sex[c(20), ]# no outlier
+size_pre[c(20), ]# no outlier
 
 # which distribution?
-range(ec_size_sex$power, na.rm=TRUE)
+range(size_pre$power, na.rm=TRUE)
 
 
 ## beta distribution
 beta_mass <- betareg(power ~ weight, 
-           data = ec_size_sex)
+           data = size_pre)
 beta0 <- betareg(power ~ 1, 
-           data = ec_size_sex)
+           data = size_pre)
 lrtest(beta_mass, beta0)
 
 summary(beta_mass)
@@ -1008,7 +1092,7 @@ ggplot(ec_size_sex, aes(x = weight, y=power, color = sex)) +
   geom_abline(slope = 0.04, intercept = -0.78957)
 
 
-ggplot(ec_size_sex, aes(x = weight, y=power)) +
+plot_pwr_weight_bin1 <- ggplot(size_pre, aes(x = weight, y=power)) +
   geom_point() +
   theme_classic() +
   labs(x="body weight (g)", y="power score") +
@@ -1019,30 +1103,86 @@ ggsave("./figures/Fig3.bodymass.pdf",  height = 3, width = 3)
   
 ```
 
+### 2. How much did mass change over initial 44 days and does this mass change influence rank? 
+excluded 3 individuals due to outlier weights at either timepoint 0 or 1
+
+```{r}
+head(size_sex)
+
+dsize <- size_sex %>%
+  group_by(id) %>% 
+  mutate(lead=lead(weight), 
+            weight_change = lead-weight) %>%
+  filter(date=="2021-04-05") #slice(1)  # lead is weight at removal1 
+head(dsize)
+
+ec_rankbin1 <- ec_rankXbin %>%
+  filter(bin==1)
+
+dsize_pwr <- dsize %>%
+  left_join(ec_rankbin1)
+
+dsize_pwr_summ <- dsize_pwr %>% ungroup() %>%
+  summarise(mean=mean(weight_change),
+            sd=sd(weight_change))
+
+ggplot(dsize_pwr, aes(x=weight_change, y=power)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="weight change (g)", y= "power score")
+
+# percent weight change to control for body size
+dsize_pwr_mean <- dsize_pwr %>%
+  left_join(mean_mass) %>%
+  mutate(perc_change = weight_change/mean*100)
 
 
-### mass change
+# correlation
+cor.test(dsize_pwr_mean$perc_change, dsize_pwr_mean$power, method = "spearman" )
+
+plot_pwr_change <- ggplot(dsize_pwr_mean, aes(x=perc_change, y=power)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="weight change (%)", y= "power score")
+
+#
+beta_mass <- betareg(power ~ weight*weight_change, 
+           data =dsize_pwr)
+beta0 <- betareg(power ~ 1, 
+           data = size_pre)
+lrtest(beta_mass, beta0)
+
+summary(beta_mass)
+
+lrtest(beta0, beta_mass)
+
+
+ggplot(dsize_pwr, aes(x=lead, y=power, color=weight_change)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="weight (g)", y= "power score") #+
+  #geom_smooth(method="lm" ) # , color="red", fill="#69b3a2", se=TRUE
+
+
+```
+
+### 3. rank change ~ body mass change at 3 different timepoints 
+(Bin 1 and 4; bin 5 and 8; bin 9 and 12)
+
+
+
+### plot
+
+```{r}
+ggarrange(plot_pwr_weight_bin1, plot_pwr_change )
+```
+
+
+### mass change stressful
 
 -	Removal stressful from being isolated and away from group -> perhaps couldn’t retake rank, 
 o	analyse with change in mass before removal for focal (not significant)
 o	compare change in mass between focal and other birds of mass per perturbations. (Mass change in percentage (lose weight -> negative))
-
-```{r}
-head(size_all)
-
-## outliers -> excluded instead of taking another weight
-# BBB for capture 6 weight of 86.80 -> outlier (use weight of capture 7 instead)
-#size[179,4] <- 113.0 # NB! 
-# OOO for capture 5 weight of 72.82 -> incorrect outlier (use weight of capture 6 instead)
-#size[105,4] <- 119.54
-# POP for capture 5 weight of 121.4 -> # exclude outlier as POP has a bird bag weight of only 129.94, while all the other bird bag weights are around 142-146 range
-
-size <- size_all %>%
-  filter(!weight %in% c(72.82, 86.80, 121.4)) %>% # 4 captures during social perturbation experiment) 
-  drop_na() %>%
-  dplyr::select(date, id, weight, perturbation)
-
-```
 
 
 
