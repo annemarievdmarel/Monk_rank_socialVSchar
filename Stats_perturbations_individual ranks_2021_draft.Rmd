@@ -61,8 +61,8 @@ birdIDs <- birdIDs_capture %>%
   dplyr::select(mark_id)
 
 # capture file
-size<- read.csv("./data/morphometrics_focals_2021.csv") %>%
-  dplyr::select(date, id, weight)
+size<- read.csv("./data/morphometrics_focals_2021.csv") #%>%
+  #dplyr::select(perturbation, date, id, weight)
 
 # bin dates
 bin.dates <- read.csv("./data/2021_3daybins.csv")
@@ -859,38 +859,18 @@ trial3_recovery <- ec_rankXbin %>%
 ```
 
 
+## Testing whether individual characteristics underly rank
 
-## Do individual characteristics underly rank?
-April 13 
-
-1. is there a correlation between rank and body mass? -> Kendall's tau correlation
-2. Does weight at t1 affect rank at t2, etc? -> regression
-3. does rank at t2 affect weight at t3, etc? -> regression
-4. Is there a correlation between weight change and rank change
-
-or just 
-Rank may also affect body weight then manipulating an individual’s rank should result in changes in individual characteristics. 
-
-version April
-
-Is rank determined by body weight or does rank affect body weight? causality of body weight on rank
-
-1. Does current body mass tell anything about rank? Look at the effect of body mass  on rank for 3 day bin prior the social perturbation experiment (rank assessment point 1). Linear regression of rank ~ body mass
-  -> yes, current body mass affects rank
-2. How much did mass change over initial 44 days and does this mass change influence rank? 
-3. rank change ~ body mass change at 3 different timepoints (Bin 1 and 4; bin 5 and 8; bin 9 and 12)
-
-
-
+### check body mass data
 
 ```{r ready data}
 
 # add size of birds (mass)
-size_all <- read.csv("./data/morphometrics_focals_2021.csv") 
+glimpse(size)
 
 exp_capture_dates <- c("2021-04-05", "2021-05-19", "2021-06-05", "2021-06-23", "2021-07-05")
 
-size <- size_all %>%
+size <- size %>%
   filter(date %in% exp_capture_dates)
 
 unique(size$date) # 2021-05-19 = capture event for body mass prior social perturbation experiment
@@ -905,11 +885,10 @@ birdID_select <- birdIDs_capture %>%
 
 
 ```
-Monk parakeets are monomorphic, so first we control whether sex had an effect on rank and body weight
 
-### check weight data
 
-```{r}
+
+```{r check body mass}
 
 # weight bird bag (should be around 145/146 g)
 range(size$weight2, na.rm=TRUE)
@@ -936,7 +915,8 @@ PPB on 2021-04-05 bird weight of 89.2 -> very low compared to other weights(alwa
 size_good <- size %>%
   filter(!weight %in% c(72.82, 86.20, 86.80, 89.20, 109.1, 121.4), weight2!=112.08) %>%  
   drop_na() %>%
-  dplyr::select(date, id, weight, perturbation)
+  dplyr::select(date, id, weight, perturbation) %>%
+  left_join(birdID_select)
 
 unique(size_good$date)
 
@@ -946,106 +926,153 @@ sd(size_good$weight)
 ```
 
 
-### sex effect on body mass
-```{r}
-head(size_good)
 
-# how many females and males?
-birdID_select %>%
-  group_by(sex) %>%
-  summarise(n())
+###1. correlation body mass and rank
+if you drop at a specific time point into the system, do we see an association between power and body mass? 
 
-# combine sex to body mass df
-size_sex <- size_good %>%
-  left_join(birdID_select)
-
-# difference in body mass?
-summ_mass <- size_sex %>% 
-  group_by(sex) %>%
-  summarize(mean= mean(weight, na.rm=TRUE),
-            sd = sd(weight, na.rm=TRUE)) 
-summ_mass
-
-mean_mass <- size_sex %>%
-  group_by(sex, id) %>%
-  summarize(mean= mean(weight, na.rm=TRUE),
-            sd = sd(weight, na.rm=TRUE)) 
-
-t.test(mean~sex, mean_mass)
-
-
-# body mass all birds/ males/females
-ggplot(size_sex, aes(x=date, y=weight,group=id, color=sex)) +
-         geom_point() + geom_line() +
-  theme_classic()
-
-
-
-## power score
-ec_sex <- ec_rankXbin %>%
-  left_join(birdID_select) %>% # if not summarizing: msex <- glmmadmb(power ~ sex + (1|bin), ec_sex); summary(msex)
-  group_by(sex, id) %>%
-  summarise(mean=mean(power))
-ec_sex$bin <- as.factor(ec_sex$bin)
-wilcox.test(mean ~ sex, ec_sex)
-
-
-msex <- glmmadmb(power ~ sex + (1|bin), ec_sex)
-
-summary(msex)
-
-
-```
-As we did not find a significant effect we excluded sex from further analyses. 
 
 ```{r add power score to mass df}
-head(size_sex)
+head(size_good)
 
 # include bin number to mass df
- size_sex_exp <- size_sex %>%
+ size_select <- size_good %>%
    separate(perturbation, 
            c("capture", "type"), 
-           sep="_", remove = FALSE
-             )
-head(size_sex_exp)
-size_sex_exp$type[size_sex_exp$type=="storm"] <- "end"
+           sep="_", remove = TRUE
+             ) %>% 
+   dplyr::select(-capture)
+#head(size_select)
+
+size_select$type[size_select$type=="storm"] <- "end"
  
  # add power score
-head(ec_rankXbin)
-ec_rankXbin$type[ec_rankXbin$bin==1] <- "removal1"
-ec_rankXbin$type[ec_rankXbin$bin==5] <- "removal2"
-ec_rankXbin$type[ec_rankXbin$bin==9] <- "removal3"
+head(powerXbin)
+powerXbin$type[powerXbin$bin==1] <- "removal1"
+powerXbin$type[powerXbin$bin==5] <- "removal2"
+powerXbin$type[powerXbin$bin==9] <- "removal3"
 
-ec_size_sex <- ec_rankXbin %>% 
+power_size <- powerXbin %>% 
   #filter(bin==1) %>% 
-  left_join(size_sex_exp, by=c("id", "type")) %>%
-  dplyr::select(date,type,  id, sex, weight, rank, dom_ec, power) %>%
+  left_join(size_select, by=c("id", "type")) %>%
+  dplyr::select(date,type,  id,sex, weight, rank, dom_ec, power) %>%
   drop_na()
 
-# difference between rank and sex at different time points
-#summary(aov(power~sex*type, data = ec_size_sex))
-wilcox.test(power~sex, ec_size_sex)
 
 ```
 
+```{r correlation per trial}
 
-### 1. Is there a correlation between body weight and rank when social structure is stable?
-Effect of mass on rank when social structure is stable (after 44 days of initial group formation) and just prior the first removal. 
-
-```{r correlation}
-head(ec_size_sex)
-
-ranksize_stable <- ec_size_sex %>%
+# trial 1
+power_size_1 <- power_size %>%
   filter(type=="removal1")
 
+plot_trial1 <- ggplot(power_size_1, aes(x=weight, y=power)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(limits = c(0.84, 0.98)) +
+  #geom_text(aes(label=rank),  nudge_x=0.44, nudge_y=0.001) +
+  labs(x="weight (g)", y= "power score", title="Trial 1") 
+
+cor.test(power_size_1$weight, power_size_1$power, method = "kendall")
+
+
+# trial 2
+power_size_2<- power_size %>%
+  filter(type=="removal2")
+
+plot_trial2 <- ggplot(power_size_2, aes(x=weight, y=power)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(limits = c(0.84, 0.98)) +
+  #geom_text(aes(label=rank),  nudge_x=0.44, nudge_y=0.001) +
+  labs(x="weight (g)", y= "power score", title="Trial 2") 
+
+cor.test(power_size_2$weight, power_size_2$power, method = "kendall")
+
+
+
+# trial 3
+power_size_3<- power_size %>%
+  filter(type=="removal3")
+
+plot_trial3 <- ggplot(power_size_3, aes(x=weight, y=power)) +
+  geom_point() +
+  theme_classic() +
+  #geom_text(aes(label=rank),  nudge_x=0.44, nudge_y=0.001) +
+  labs(x="weight (g)", y= "power score", title="Trial 3") 
+
+cor.test(power_size_3$weight, power_size_3$power, method = "kendall")
+
+```
+Weight and power are correlated at trial 1 (Kendall's tau = 0.33, p = 0.04), but not at trial 2 (tau = 0.19, p = 0.26) or trial 3 (tau = 0.08, p = 0.65)
+
+
+```{r plot correlations}
+
+power_size$trial <- factor(power_size$type, 
+                           levels = c("removal1",
+                                      "removal2",
+                                      "removal3"),
+                           labels = c("Trial 1","Trial 2","Trial 3"))
+
+plot_corr <- ggplot(power_size, aes(x = weight, y = power, shape = sex)) +
+  geom_point() +
+  theme_classic() +
+  facet_grid(~trial) +
+  #geom_text(aes(label=rank),  nudge_x=0.44, nudge_y=0.001) +
+  labs(x="weight (g)", y= "power score") 
+plot_corr
+
+
+```
+
+We did not find a clear pattern that at a specific time point body mass and power were correlated. Plus, as we found that body mass does not influence rank, could it be that body mass is an outcome of rank. We could test this by correlating power change and weight change for each trial. Does initial weight predict rank after initial group formation period? 
+
+###2. does body mass predict rank?
+regression of (weight at 2021-04-05) on power (ordinal rank in supplemental)
+
+```{r ready data}
+
+head(size_good)
+
+start_weight <- size_good %>%
+  filter(date=="2021-04-05")
+  
+ec_rankbin1 <- powerXbin %>%
+  filter(bin==1)
+
+start_size_pwr <- start_weight %>%
+  left_join(ec_rankbin1) %>%
+  left_join(birdID_select)
+
+## initial plots: power ~ start weight
+plot_pwr_startweight <- ggplot(start_size_pwr, aes(x=weight, y=power)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="initial weight (g)", y= "power score")
+
+plot_rank_startweight <- ggplot(start_size_pwr, aes(x=weight, y=rank)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="weight (g)", y= "ordinal rank")
+
+
+
+```
+
+Which distribution does power have?
+
+```{r power distribution}
+
 # which distribution does power have
-ggplot(data = ranksize_stable , aes(sample = power)) +
+ggplot(data = start_size_pwr , aes(sample = power)) +
   stat_qq() +
   stat_qq_line()
 
 
-m <- lm(power ~ weight, data =ranksize_stable)
+m <- lm(power ~ weight, data = start_size_pwr)
 summary(m)
+
 d <- data.frame(residuals = residuals(m),         # Residuals
                 std_residuals = rstudent(m), # Studentized Residuals
                 fitted = fitted(m),          # Fitted values
@@ -1075,370 +1102,300 @@ ggplot(d, aes(x = observation, y = cooks)) +
 d_outliers <- filter(d, cooks > 4/nrow(d))
 d_outliers
 
-ranksize_stablee[c(20), ]# no outlier
+start_size_pwr[c(8), ]# no outlier
 
-# which distribution?
-range(ranksize_stable$power, na.rm=TRUE)
-
-
-## beta regression, if we also want to control directly for the confound factor, sex (yet using this method we do find sex effect)
-beta_int <- betareg(power ~ weight * sex, ranksize_stable)
-beta_full <- betareg(power ~ weight + sex, ranksize_stable)
-beta_mass <- betareg(power ~ weight, ranksize_stable)
-beta_sex <- betareg(power ~ sex, ranksize_stable)
-beta_null <-betareg(power ~ 1, ranksize_stable)
-AIC(beta_int, beta_full, beta_sex, beta_mass, beta_null)
-
-AIC(beta_int, beta_null)
-lrtest(beta_full, beta_sex)
-summary(beta_int)
-
-## correlation ---
-cor.test( ranksize_stable$weight,ranksize_stable$power, method = "kendall")
+# which distribution? beta 
+range(start_size_pwr$power, na.rm=TRUE)
 
 
-## plot ----
-ggplot(ec_size_sex, aes(x = weight, y=power, color = sex)) +
+```
+Power score follows a beta distribution
+
+
+```{r regression power ~ body mass}
+
+# power score
+beta_mass <- betareg(power ~ weight, 
+           data = start_size_pwr)
+beta0 <- betareg(power ~ 1, 
+           data = start_size_pwr)
+
+lrtest(beta_mass, beta0)
+
+summary(beta_mass)
+
+```
+
+include sex
+```{r regression power ~ body mass + sex}
+
+# power score
+beta_full <- betareg(power ~ weight+sex, 
+           data = start_size_pwr)
+beta0 <- betareg(power ~ 1, 
+           data = start_size_pwr)
+aicresults <- AIC(beta_full, beta0)
+
+lrtest(beta_full, beta0)
+
+summary(beta_full)
+
+
+```
+
+
+```{r plot }
+
+plot_priorweight <- ggplot(start_size_pwr, aes(x=weight, y=power, color= sex, shape=sex)) +
   geom_point() +
   theme_classic() +
-  labs(x="body weight (g)", y="power score") +
-  #geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
-  geom_abline(slope = 0.04, intercept = -0.78957)
+  #geom_label(aes(label=rank)) +
+  labs(x="initial weight (g)", y= "power score") #+
+  #geom_smooth(method="lm" ) # , color="red", fill="#69b3a2", se=TRUE
+plot_priorweight
+
+```
 
 
-plot_pwr_weight_bin1 <- ggplot(ranksize_stable, aes(x = weight, y=power , color = sex)) +
+We found that neither initial body mass nor sex influenced power at the end of the initial group formation period (LRT: λ = 3.85, p = 0.15, weight estimate ± SE = 0.01 ± 0.01, sex estimate ± SE = -0.38 ± 0.19;; Fig. 2TKTK). 
+
+As the birds came from different feral populations, they did not have prior information on all the birds. If body weight influences rank, we should have found a significant relationship between initial body weight and power at a later time point. 
+
+
+```{r supplemental}
+# ordinal rank
+rank_mass <- lm(rank ~ weight, 
+           data = start_size_pwr)
+rank0 <-lm(rank~ 1, 
+           data = start_size_pwr)
+
+lrtest(rank_mass, rank0)
+
+summary(rank_mass)
+
+
+
+ggplot(start_size_pwr, aes(x=weight, y=rank)) +
   geom_point() +
   theme_classic() +
-  labs(x="body weight (g)", y="power score") 
-  #geom_smooth(method="lm" , color="red", fill="#69b3a2", se=TRUE)  #, color="red", fill="#69b3a2", se=TRUE)
- # annotate("text", x = 100, y = 0.99, label = "-0.59 + 0.03x")
+  labs(x="weight (g)", y= "ordinal rank") #+
+  #geom_smooth(method="lm" ) # , color="red", fill="#69b3a2", se=TRUE
 
-#ggsave("./figures/Fig3.bodymass.pdf",  height = 3, width = 3)
+```
+
+
+
+###3. Is body mass an outcome of rank
+
+weight change between trial capture events
+power score change between bin 1 & 5/ bin 5 & 9/ bin 9 & 13 -> however, we do not have power score at rank assessment point 13 due to a tropical storm
+
+```{r correlation power change and weight change}
+
+#head(power_size)
+glimpse(power_size)
+
+change <- power_size %>%
+  group_by(id) %>% 
+  mutate(leadw=lead(weight), 
+         weight_change = leadw-weight, 
+         leadp=lead(power), 
+         power_change = leadp-power, 
+         leadr=lead(rank),
+         rank_change=rank-leadr) %>% 
+  drop_na() %>%
+  dplyr::select(type, id,sex, rank,  weight_change, power_change, rank_change)
+#head(change)
+glimpse(change)
+
+change_summ <- change %>%
+  group_by(type) %>%
+  summarise(mean_dweight=mean(weight_change),
+            mean_dpower=mean(power_change))
+
+
+## trial 1 ----
+dsize1 <- change %>%
+  filter(type=="removal1") #, id!="BBB" -> exclude removed focal bird
+
+ggplot(dsize1, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
+  geom_point() + 
+  theme_classic()
+
+# weight change normally distributed
+# shapiro test p >0.05, data normally distributed
+ggqqplot(dsize1, "weight_change")
+
+
+m <- lm(power_change ~ weight_change, data = dsize1)
+m <- lm(weight_change ~ power_change, data = dsize1)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))
+#d_outliers # no outliers when log-transformed; 2,31,33,34
+
+
+# correlation
+cor.test(dsize1$power_change, dsize1$weight_change, method="kendall")
+
+
+
+## trial 2 ----
+dsize2 <- change %>%
+  filter(type=="removal2") #, id!="GPG"
+
+ggplot(dsize2, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
+  geom_point() + 
+  theme_classic()
+
+
+# normally distributed?
+ggqqplot(dsize2, "weight_change")
+ggqqplot(dsize2, "power_change")
+
+
+m <- lm(power_change ~ weight_change, data = dsize2)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))
+#d_outliers # 1 and 17 -> no outliers
+
+
+# correlation
+cor.test(dsize2$power_change, dsize2$weight_change) # pearson: linearity and constant variance -> no
+cor.test(dsize2$power_change, dsize2$weight_change, method="kendall")
+
+
+```
+Power and weight change were not correlated both when the focal was included (trial 1: Kendall's tau = 0.16, p = 0.33; trial 2: kendall's tau = 0.13, p = 0.45) and excluded (trial 1: Kendall's tau = 0.06, p = 0.70; trial 2: kendall's tau = 0.13, p = 0.48) 
+
+
+add color by rank
+
+```{r plot power and weight change}
+
+change$trial <- factor(change$type, 
+                           levels = c("removal1",
+                                      "removal2"),
+                           labels = c("Trial 1","Trial 2"))
+change$rank
+
+library(wesanderson)
+pal <- wes_palette("Zissou1", 5, type = "discrete")
+library(viridis)
+
+plot_change <- ggplot(change, aes(x=weight_change, y=power_change, shape=sex, color=rank)) + 
+  geom_point() + 
+  facet_wrap(~trial) +
+  #scale_y_continuous(limits = c(-0.15, 0.10)) +
+  theme_classic() +
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(x = "weight change (g)", y = "power score change", title="Change between capture events") +
+  geom_hline(yintercept=0,
+             linetype="dotted", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey", alpha = 0.01, color=alpha("grey",.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "#dc8580", alpha = 0.01, color=alpha("#dc8580", 0.01)) +
+  scale_color_viridis(option = "D", direction = -1) #palette = "Spectral")
+
+plot_change
+
+
+
+```
+
+```{r plot corr per trial separate}
+plot_change1 <- ggplot(dsize1, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
+  geom_point(shape=sex) + 
+  scale_y_continuous(limits = c(-0.15, 0.10)) +
+  theme_classic() +
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(x = "weight change (g)", y = "power score change", title="Trial 1") +
+  geom_hline(yintercept=0,
+             linetype="dotted") + 
+  geom_vline(xintercept=0,
+             linetype="dashed") 
+  #geom_hline(yintercept=change_summ$mean_dpower[change_summ$type=="removal1"],
+   #          linetype="dotted") +
+  #geom_vline(xintercept=change_summ$mean_dweight[change_summ$type=="removal1"],
+   #          linetype="dashed")
+plot_change1
+
+plot_change2 <- ggplot(dsize2, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
+  geom_point() + 
+  scale_y_continuous(limits = c(-0.15, 0.10)) +
+  theme_classic() +
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=-0.05) +
+  labs(x = "weight change (g)", y = "power score change", title="Trial 2") +
+  geom_hline(yintercept=0,
+             linetype="dotted") + 
+  geom_vline(xintercept=0,
+             linetype="dashed") 
+  #geom_hline(yintercept=change_summ$mean_dpower[change_summ$type=="removal2"],
+      #       linetype="dotted") + # mean power change
+  #geom_vline(xintercept=change_summ$mean_dweight[change_summ$type=="removal2"],
+     #        linetype="dashed") # mean weight change
   
-```
-We found a positive correlation between rank and body weight, where heavier birds had higher ranks. 
+plot_change2
 
-Now, we are interested in the causality of this relationship: does body mass influence rank or is body mass an outcome of rank? 
-
-
-### 2. Does body mass influence rank? 
-Does body mass predict rank: do heavier birds at t1 (start initial group formation period) obtain higher ranking positions at t2 (rank assessment point 1 just prior first removal), etc? Regression between weight at t1 and rank at t2. 
-
-excluded 3 individuals due to outlier weights 
-
-
-```{r rank ~ prior body mass: change close to one another}
-
-# weight t1 - rank t2 ---
-weight_t1 <- size_sex_exp %>%
-  filter(type=="start")
-
-power_t2 <- ec_rankXbin %>%
-  filter(bin == 1) 
-
-weight_pwr1 <- left_join(weight_t1, power_t2, by="id")
-
-## beta distribution
-ggqqplot(weight_pwr1, "power")
-
-cor.test(weight_pwr1$weight,weight_pwr1$rank )
-
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr1)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr1)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr1, aes(x=rank, y=weight)) +
-  geom_point() +
-  theme_classic() +
-  labs(y="body weight at time 1 (g)",x="power score at time 2")
-
-
-# weight t2 - rank t3 ----
-weight_t2 <- size_sex_exp %>%
-  filter(type=="removal2")
-
-power_t3 <- ec_rankXbin %>%
-  filter(bin ==6) 
-
-weight_pwr2 <- left_join(weight_t2, power_t3, by="id")
-
-## beta distribution
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr2)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr2)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # no significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr2, aes(x=weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight at time 2 (g)",y="power score at time 3")
-
-
-
-
-# weight t3 - rank t4 ----
-weight_t3 <- size_sex_exp %>%
-  filter(type=="removal3")
-
-power_t4 <- ec_rankXbin %>%
-  filter(bin == 10) # last rank assessment point (we don't have bin 13 due to tropical storm)
-
-weight_pwr3 <- left_join(weight_t3, power_t4, by="id")
-
-## beta distribution
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr3)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr3)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # no significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr3, aes(x=weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight at time 3 (g)",y="power score at time 4")
-
-
-## combine dfs
-pwr_wght <- bind_rows(weight_pwr1, weight_pwr2,weight_pwr3) 
-pwr_wght <- filter(pwr_wght, power!="NA")
-
-ggplot(pwr_wght, aes(x=weight, y=power, color=id)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="prior body weight (g)",y="power score") +
-  geom_smooth(method="lm", se=F)
-
-pwr_wght$type <- as.factor(pwr_wght$type.x)
-pwr_wght$id <- as.factor(pwr_wght$id)
-
-
-mfull <- glmmadmb(power ~ weight + (1|type), pwr_wght)
-mint <- glmmadmb(power ~ weight * type, pwr_wght)
-mnull <- glmmadmb(power ~ 1 + (1|type), pwr_wght)
-summary(mfull)
-summary(mint)
-summary(mnull)
-lrtest(mnull, mfull)
-```
-If looking at the relationship between prior body mass on rank per trial separately, then only trial 1 shows a positive relationship, where heavier birds have higher ranks in the 3 days afterwards and I found no relationship for trial 2 or 3. 
-If we combine the 3 trials and control for the multiple measures by adding a random factor, trial, I found no significant relationship (LRT: 0.002, p = 0.96; GLMM:0.001 +- 0.02, random factor variance < 0.001)
-
-
-
-```{r rank ~ body mass: change far in between}
-
-# weight t1 - rank t2 ---
-weight_t1 <- size_sex_exp %>%
-  filter(type=="start")
-
-power_t2 <- ec_rankXbin %>%
-  filter(bin ==1) 
-
-weight_pwr <- left_join(weight_t1, power_t2, by="id")
-
-## beta distribution
-ggqqplot(weight_pwr, "power")
-
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # no significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr, aes(x=weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight at time 1 (g)",y="power score at time 2")
-
-
-
-# weight t2 - rank t3 ----
-weight_t2 <- size_sex_exp %>%
-  filter(type=="removal1")
-
-power_t3 <- ec_rankXbin %>%
-  filter(bin ==5) 
-
-weight_pwr2 <- left_join(weight_t2, power_t3, by="id")
-
-## beta distribution
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr2)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr2)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # no significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr2, aes(x=weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight at time 2 (g)",y="power score at time 3")
-
-
-
-
-# weight t2 - rank t3 ----
-weight_t3 <- size_sex_exp %>%
-  filter(type=="removal2")
-
-power_t4 <- ec_rankXbin %>%
-  filter(bin ==9) # lst rank assessment point (we don't have bin 13 due to tropical storm)
-
-weight_pwr3 <- left_join(weight_t3, power_t4, by="id")
-
-## beta distribution
-beta_mass <- betareg(power ~ weight, 
-           data = weight_pwr3)
-beta0 <- betareg(power ~ 1, 
-           data = weight_pwr3)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # no significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-## plot
-
-ggplot(weight_pwr3, aes(x=weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight at time 3 (g)",y="power score at time 4")
-
-
+# combine
+ggarrange(plot_change1, plot_change2 )
 ```
 
-Body weight did not predict rank as weight at the start of the field season did not influence rank at the end of the group stabilization period (LRT: 0.19, p = 0.67, estimate +- Sd = 0.01 +- 0.01). We also found nonsignificant results when comparing weight prior to first removal and rank prior to second removal (LRT: 0.13, p = 0.72) and weight prior to second removal and rank prior to third removal (LRT: 0.53, p = 0.47). 
 
-
-### 3. Is body mass an outcome of rank?
 
 
 #### focals body mass change
@@ -1447,7 +1404,7 @@ focal birds that were unable to re-take their top rank should also lose weight u
 in percentage 
 body weight gain positive values while weight loss negative values
 
-power test (gpower)
+power test 
 
 ```{r mass change focals}
 
@@ -1550,7 +1507,7 @@ plot_masschangefocal_removal <- focal_long %>%
   geom_col( colour = "black") +
   scale_y_continuous(limits = c(-7.5, 5.0)) +
   #facet_wrap(~period) +
-  labs(x= "perturbed bird ID", y= "weight change (%)", title="8-day removal") +
+  labs(x= "perturbed bird ID", y= "weight change (%)", title="following removal") +
   theme_classic() +
   scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
   geom_hline(yintercept = 0) +
@@ -1563,7 +1520,7 @@ plot_masschangefocal_reintro <- focal_long %>%
   geom_col( colour = "black") +
   scale_y_continuous(limits = c(-7.5, 5.0)) +
   #facet_wrap(~period) +
-  labs(x= "", y= "", title="8-day reintroduction") +
+  labs(x= "", y= "", title="following reintroduction") +
   theme_classic() +
   scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
   geom_hline(yintercept = 0) +
@@ -1577,486 +1534,15 @@ plot_masschangefocal_reintro <- focal_long %>%
 
 We found that the focal birds that had an extreme loss of rank (-20 rank positions) upon reintroduction also lost weight after reintroduction (Table 1). Only the focal bird of trial 2 lost 16 rank positions but gained weight after reintroduction. Yet the weight changes were not significant. 
 
-#### regression prior rank and later body mass
-Does prior rank influence body mass?
-regression between rank t2 and mass t3, t3 vs t2, t4 vs t5
-
-```{r mass ~ rank}
-
-# distribution of body mass ----
-x<-size_sex_exp$weight
-
-range(x, na.rm=T)
-
-library(rstatix)
-plot(x)
-identify(x)
-shapiro.test(x)
-#anova_test() 
-
-# shapiro test p >0.05, data normally distributed
-ggqqplot(size_sex_exp, "weight")
-
-
-m <- lm(x ~ type, data = size_sex_exp)
-summary(m)
-d <- data.frame(residuals = residuals(m),         # Residuals
-                std_residuals = rstudent(m), # Studentized Residuals
-                fitted = fitted(m),          # Fitted values
-                cooks = cooks.distance(m))   # Cook's D
-d <- mutate(d, observation = 1:nrow(d))           # Observation number
-
-# histogram of residuals
-ggplot(data = d, aes(x = std_residuals)) +
-  geom_histogram(bins = 10)
-
-# Check for Normality: QQ Normality plot of residuals
-ggplot(data = d, aes(sample = std_residuals)) +
-  stat_qq() +
-  stat_qq_line()
-
-# Check heteroscedasticity or constant variance
-ggplot(d, aes(x = fitted, y = std_residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0)
-
-# Cook's D
-ggplot(d, aes(x = observation, y = cooks)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dotted") +
-  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
-# outliers
-d_outliers <- filter(d, cooks > 4/nrow(d))
-#d_outliers # no outliers when log-transformed; 2,31,33,34
-
-
-#size_sex_exp[c(75,85,86,89),] # no outliers
-
-
-
-# weight t3 - rank t2 ---
-weight_t3 <- size_sex_exp %>%
-  filter(type=="removal2", id!="BBB") 
-
-power_t2 <- ec_rankXbin %>%
-  filter(bin == 1) 
-
-weight_pwr <- left_join(weight_t3, power_t2, by="id")
-
-## normal distribution
-m_rank <- lm(weight ~ power, data = weight_pwr)
-m0 <- lm(weight ~ 1, data = weight_pwr)
-
-lrtest(m_rank, m0) # no significant effect of rank on weight
-summary(m_rank)
-
-
-## model validation
-model <- beta_mass
-
-library(DHARMa)
-simulationOutput <- simulateResiduals(fittedModel = model, n = 250)
-simulationOutput$scaledResiduals
-plot(simulationOutput, asFactor = TRUE)
-plotResiduals(weight_pwr$weight, simulationOutput$scaledResiduals, quantreg = T)
-simulationOutput = recalculateResiduals(simulationOutput)
-testDispersion(simulationOutput)
-
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-## plot
-ggplot(weight_pwr, aes(x=power, y=weight)) +
-  geom_point() +
-  theme_classic() +
-  labs(y="body weight at time 3 (g)",x="power score at time 2")
-
-
-
-# weight t4 - rank t3 ----
-weight_t4 <- size_sex_exp %>%
-  filter(type=="removal3", id!="GPG")
-
-power_t3 <- ec_rankXbin %>%
-  filter(bin == 5) 
-
-weight_pwr2 <- left_join(weight_t4, power_t3, by="id")
-
-
-m_rank <- lm(weight ~ power, data = weight_pwr2)
-m0 <- lm(weight ~ 1, data = weight_pwr2)
-
-lrtest(m_rank, m0) # no significant effect of rank on weight
-summary(m_rank)
-
-## model validation
-model <- m_rank
-
-library(DHARMa)
-simulationOutput <- simulateResiduals(fittedModel = model, n = 250)
-simulationOutput$scaledResiduals
-plot(simulationOutput, asFactor = TRUE)
-plotResiduals(weight_pwr$weight, simulationOutput$scaledResiduals, quantreg = T)
-simulationOutput = recalculateResiduals(simulationOutput)
-testDispersion(simulationOutput)
-
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-## plot
-ggplot(weight_pwr2, aes(y=weight, x=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(y="body weight (g) at time 4",y="power score at time 3")
-
-
-
-
-# weight t5 - rank t4 ----
-weight_t5 <- size_sex_exp %>%
-  filter(type=="end")
-
-power_t4 <- ec_rankXbin %>%
-  filter(bin == 9) 
-
-weight_pwr3 <- left_join(weight_t5, power_t4, by="id")
-
-
-m_rank <- lm(weight ~ power, data = weight_pwr3)
-m0 <- lm(weight ~ 1, data = weight_pwr3)
-
-lrtest(m_rank, m0) # no significant effect of rank on weight
-summary(m_rank)
-
-## model validation
-model <- m_rank
-
-library(DHARMa)
-simulationOutput <- simulateResiduals(fittedModel = model, n = 250)
-simulationOutput$scaledResiduals
-plot(simulationOutput, asFactor = TRUE)
-plotResiduals(weight_pwr$weight, simulationOutput$scaledResiduals, quantreg = T)
-simulationOutput = recalculateResiduals(simulationOutput)
-testDispersion(simulationOutput)
-
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-## plot
-ggplot(weight_pwr3, aes(y=weight, x=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(y="body weight (g) at time 5",x="power score at time 4")
-
-
-
-```
-
-```{r}
-
-weight_power <- bind_rows(weight_pwr, weight_pwr2, weight_pwr3)
-
-# same ids measured at different timepoints
-m_int <- lm(weight ~ power * capture, data = weight_power)
-m_pwr_trial <- lm(weight ~ power + capture, data = weight_power)
-m_pwr <- lm(weight ~ power , data = weight_power)
-m_trial <- lm(weight ~ capture, data = weight_power)
-m0 <- lm(weight ~ 1 , data = weight_power)
-
-AIC(m_int, m_pwr_trial, m_pwr, m_trial, m0)
-lrtest()
-summary(m_int)
-
-ggplot(weight_power, aes(power, weight, color=capture)) +
-  geom_point() +
-  geom_smooth(method="lm", se=F) +
-  theme_classic()
-
-```
-
-
-We did not find that individuals that had higher ranks also had higher body weight the next capture event (LM: )
-
-
-#### correlation between rank and body mass change
-correlation rank change & body mass change at 2 different timepoints 
-rank: Bin 1 and 4; bin 5 and 8. Last bin (bin 13) missing due to storm
-weight: 
-
-
-```{r}
-head(ec_size_sex)
-
-dsize <- ec_size_sex %>%
-  group_by(id) %>% 
-  mutate(leadw=lead(weight), 
-         weight_change = leadw-weight, 
-         leadr=lead(power), 
-         power_change = leadr-power) %>% 
-  drop_na()
-head(dsize)
-
-## trial 1
-dsize1 <- dsize %>%
-  filter(type=="removal1") #, id!="BBB"
-
-ggplot(dsize1, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
-  geom_point() + 
-  theme_classic()
-
-# weight change normally distributed
-# shapiro test p >0.05, data normally distributed
-ggqqplot(size_sex_exp, "weight")
-
-
-m <- lm(power_change ~ weight_change, data = dsize1)
-m <- lm(weight_change ~ power_change, data = dsize1)
-summary(m)
-d <- data.frame(residuals = residuals(m),         # Residuals
-                std_residuals = rstudent(m), # Studentized Residuals
-                fitted = fitted(m),          # Fitted values
-                cooks = cooks.distance(m))   # Cook's D
-d <- mutate(d, observation = 1:nrow(d))           # Observation number
-
-# histogram of residuals
-ggplot(data = d, aes(x = std_residuals)) +
-  geom_histogram(bins = 10)
-
-# Check for Normality: QQ Normality plot of residuals
-ggplot(data = d, aes(sample = std_residuals)) +
-  stat_qq() +
-  stat_qq_line()
-
-# Check heteroscedasticity or constant variance
-ggplot(d, aes(x = fitted, y = std_residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0)
-
-# Cook's D
-ggplot(d, aes(x = observation, y = cooks)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dotted") +
-  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
-# outliers
-d_outliers <- filter(d, cooks > 4/nrow(d))
-d_outliers # no outliers when log-transformed; 2,31,33,34
-
-
-cor.test(dsize1$power_change, dsize1$weight_change) # pearson: linearity and constant variance -> no
-cor.test(dsize1$power_change, dsize1$weight_change, method="kendall")
-
-
-
-## trial 2
-dsize2 <- dsize %>%
-  filter(type=="removal2", id!="GPG") #, id!="GPG"
-
-ggplot(dsize2, aes(x=weight_change, y=power_change)) +  # filter(dsize1, id!="BBB")
-  geom_point() + 
-  theme_classic()
-
-# weight change normally distributed
-# shapiro test p >0.05, data normally distributed
-ggqqplot(dsize2, "weight_change")
-
-
-m <- lm(power_change ~ weight_change, data = dsize2)
-summary(m)
-d <- data.frame(residuals = residuals(m),         # Residuals
-                std_residuals = rstudent(m), # Studentized Residuals
-                fitted = fitted(m),          # Fitted values
-                cooks = cooks.distance(m))   # Cook's D
-d <- mutate(d, observation = 1:nrow(d))           # Observation number
-
-# histogram of residuals
-ggplot(data = d, aes(x = std_residuals)) +
-  geom_histogram(bins = 10)
-
-# Check for Normality: QQ Normality plot of residuals
-ggplot(data = d, aes(sample = std_residuals)) +
-  stat_qq() +
-  stat_qq_line()
-
-# Check heteroscedasticity or constant variance
-ggplot(d, aes(x = fitted, y = std_residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0)
-
-# Cook's D
-ggplot(d, aes(x = observation, y = cooks)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dotted") +
-  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
-# outliers
-d_outliers <- filter(d, cooks > 4/nrow(d))
-d_outliers # no outliers when log-transformed; 2,31,33,34
-
-
-cor.test(dsize2$power_change, dsize2$weight_change) # pearson: linearity and constant variance -> no
-cor.test(dsize2$power_change, dsize2$weight_change, method="kendall")
-
-
-```
-For trial 1, power and weight change were positively correlated when the focal bird was included (pearson's = 0.16, p = 0.33) but not when the focal was excluded (pearson's = 0.06, p = 0.7), suggesting that the result was driven by the removal and reintroduction of the focal. 
-
-Power and weight change were not correlated both when the focal was included (trial 1: Kendall's tau = 0.16, p = 0.33, trial 2: kendall's tau = 0.13, p = 0.45) and excluded (trial 1: Kendall's tau = 0.06, p = 0.7; trial 2: kendall's tau = 0.13, p = 0.48) 
-
-label ordinal rank on the points and include mean power and weight change lines
-
-
-### plot
-
-```{r}
-ggarrange(plot_pwr_weight_bin1, plot_pwr_change )
-```
-
-
-### mass change stressful
-
--	Removal stressful from being isolated and away from group -> perhaps couldn’t retake rank, 
-o	analyse with change in mass before removal for focal (not significant)
-o	compare change in mass between focal and other birds of mass per perturbations. (Mass change in percentage (lose weight -> negative))
-
-
-
-#### focals body mass change
-in percentage and body weight gain positive values while weight loss negative values
-```{r mass change focals}
-
-focal_weights<- c("capture3","reintroduction1","capture4","reintroduction2","capture5","reintroduction3","capture6")
-
-mass_mean <- size %>% 
-  dplyr::select(date, perturbation, id, weight) %>%
-  separate(perturbation, 
-           c("capture", "type"), 
-           sep="_", remove = FALSE
-             ) %>% 
-  dplyr::filter(capture %in% focal_weights, id %in% c("BBB", "GPG", "OPP")) %>%
-  group_by(id) %>%
-  arrange(id, date) %>%
-  mutate(#weighttime2=lead(weight),
-         #masschange=weighttime2-weight, 
-         mean=mean(weight)) %>% #,massperc = weight/mean*100
-  pivot_wider(-c(date,perturbation, capture),
-              names_from = type,
-              values_from = weight) %>%
-  dplyr::select(id,  mean)
-
-# combine mass change in dataframe
-focals <- c("BBB", "GPG", "OPP")
-size_focals <- size %>% 
-  dplyr::select(date, perturbation, id, weight) %>%
-  separate(perturbation, 
-           c("capture", "type"), 
-           sep="_", remove = FALSE
-             ) %>% 
-  dplyr::filter(capture %in% focal_weights, id %in% c("BBB", "GPG", "OPP")) %>%
-  mutate(weight_t2 = lead(weight), 
-    weight_change=weight_t2-weight)
-
-
-removal_massBBB <- 119.40-119
-removal_massGPG <- 114-116.3 
-removal_massOPP <- 117.37-116.80
-removal_mass <- rbind(removal_massBBB, removal_massGPG, removal_massOPP) 
-
-reintro_massBBB <- 112.8-119.40
-reintro_massGPG <- 114.2-114
-reintro_massOPP <- 110-117.37
-reintro_mass <- rbind(reintro_massBBB, reintro_massGPG, reintro_massOPP) 
-
-#colnames(mass_focals$...3) <- c("reintro")
-
-trial_massBBB <- 112.8-119
-trial_massGPG <- 114.20-116.30
-trial_massOPP <- 110-116.80
-trial_mass <- rbind(trial_massBBB, trial_massGPG, trial_massOPP) 
-
-masschange_focals <- cbind(mass_mean,removal_mass, reintro_mass, trial_mass) %>%
-  rename(removal='...3', reintro='...4', trial='...5') %>%
-  mutate(perc_removal=removal/mean*100,
-         perc_reintro=reintro/mean*100,
-         perc_trial=trial/mean*100)
-
-
-
-# import created df
-focal_masschange <- read.csv("output/focal_mass_change.csv") %>%
-  mutate(removal=change_removal/mean*100,
-         reintroduction=change_reintroduction/mean*100,
-         trial=change_trial/mean*100)
-
- 
-# differences in weight change removal
-t.test(focal_masschange$start_removal, focal_masschange$upon_reintroduction, 
-            paired = TRUE)
-
-wilcox.test(focal_masschange$start_removal, focal_masschange$upon_reintroduction, 
-            paired = TRUE)
-
-
-# differences in weight change reintroduction
-wilcox.test(focal_masschange$upon_reintroduction, focal_masschange$end_trial, 
-            paired = TRUE)
-# differences in weight change complete trial
-wilcox.test(focal_masschange$start_removal, focal_masschange$end_trial, 
-            paired = TRUE)
-
-# plot mass change with df in long format
-focal_long <- focal_masschange %>%
-  dplyr::select(id, removal, reintroduction, trial) %>%
-  pivot_longer(-id,
-               c("removal", "reintroduction", "trial"),
-               names_to = "time",
-               values_to = "mass_change")
-focal_long$time[focal_long$time==""]<-"removal"
-
-focal_long$period <- factor(focal_long$time, 
-                            levels=c("removal", "reintroduction", "trial"))
-
-plot_masschangefocal_removal <- focal_long %>%
-  filter(period=="removal") %>%
-  ggplot( aes(x=id, y=mass_change, fill=id)) +
-  geom_col( colour = "black") +
-  scale_y_continuous(limits = c(-7.5, 5.0)) +
-  #facet_wrap(~period) +
-  labs(x= "perturbed bird ID", y= "weight change (%)", title="8-day removal") +
-  theme_classic() +
-  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
-  geom_hline(yintercept = 0) +
-  theme(legend.position = "none")
-#ggsave("figures/figure_focal_mass_change_time.pdf")
-
-plot_masschangefocal_reintro <- focal_long %>%
-  filter(period=="reintroduction") %>%
-  ggplot( aes(x=id, y=mass_change, fill=id)) +
-  geom_col( colour = "black") +
-  scale_y_continuous(limits = c(-7.5, 5.0)) +
-  #facet_wrap(~period) +
-  labs(x= "", y= "", title="8-day reintroduction") +
-  theme_classic() +
-  scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6)) +
-  geom_hline(yintercept = 0) +
-  theme(legend.position = "none",
-        axis.text.y = element_blank())
-#ggsave("figures/figure_focal_mass_change_time.pdf")
-
-
-
-```
-
-
 ####group vs focal mass change
 Exclude focal birds for only their respective trial 
+
+check percentage mass change of all birds! 
 ```{r group mass change}
 focal_weights<- c("reintroduction1","reintroduction2","reintroduction3")
 long_perturb <- c("capture3","capture4","capture5","capture6")
 
-dfmass_long <- size %>% 
+dfmass_long <- size_good %>% 
   dplyr::select(date, perturbation, id, weight) %>%
               pivot_wider(-date,
               names_from = perturbation,
@@ -2211,9 +1697,9 @@ custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
 masschange_trials$comparison <- factor(masschange_trials$type,
                                        levels=c("removal1",
                                                 "removal2","removal3"),
-                                       labels=c("1 & 2",
-                                                "2 & 3",
-                                                "3 & final"))
+                                       labels=c("2 vs 1",
+                                                "3 vs 2",
+                                                "end vs 3"))
 
 plot_dmass <- masschange_trials %>%
   mutate(perc_change=masschange/mean*100) %>%
@@ -2221,7 +1707,7 @@ plot_dmass <- masschange_trials %>%
   geom_hline(yintercept=0) +
    labs(y="weight change (%)",
        x="comparison between capture events", 
-       title = "16-day trial period") +
+       title = "between captures") +
   
   # add half-violin from ggdist package 
   ggdist::stat_halfeye(
@@ -2279,9 +1765,28 @@ plot_dmass <- masschange_trials %>%
 
 ```
 
+### plots
 
-#### combine plots body mass
-```{r}
+```{r fig 2}
+
+ggarrange(plot_corr,
+          plot_priorweight, 
+          ncol=1, nrow=2, 
+          labels = c("(a)", "(b)"))
+ggsave("figures/Fig.2.pdf" ,width = 7, height = 5, units = "in")
+```
+
+
+```{r Fig. 3}
+plot_change 
+
+ggsave("figures/Fig.3.pdf",width = 7, height = 3, units = "in")
+
+```
+
+
+
+```{r Fig. 4}
 
 
 ggarrange(plot_masschangefocal_removal,
@@ -2289,612 +1794,9 @@ ggarrange(plot_masschangefocal_removal,
           plot_dmass, 
           nrow=1, 
           labels = c("(a)", "(b)","(c)"))
-ggsave("./figures/Fig2_weight_change_updated.pdf",
+
+ggsave("./figures/Fig4.pdf",
        width = 180, height = 85, units = "mm") # height = 90 seems to be ok, 60 is too low, 75 just too low
 
 
 ```
-
-
-
-# zombie code
-version early April
-### 1. Does current body weight affect rank?
-Effect of mass on rank when social structure is stable (after 44 days of initial group formation) and just prior the first removal. 
-
-```{r linear regression}
-head(ec_size_sex)
-
-size_pre <- ec_size_sex %>%
-  filter(type=="removal1")
-
-# which distribution does power have
-ggplot(data = size_pre , aes(sample = power)) +
-  stat_qq() +
-  stat_qq_line()
-
-
-m <- lm(power ~ weight, data =size_pre)
-summary(m)
-d <- data.frame(residuals = residuals(m),         # Residuals
-                std_residuals = rstudent(m), # Studentized Residuals
-                fitted = fitted(m),          # Fitted values
-                cooks = cooks.distance(m))   # Cook's D
-d <- mutate(d, observation = 1:nrow(d))           # Observation number
-
-# histogram of residuals
-ggplot(data = d, aes(x = std_residuals)) +
-  geom_histogram(bins = 10)
-
-# Check for Normality: QQ Normality plot of residuals
-ggplot(data = d, aes(sample = std_residuals)) +
-  stat_qq() +
-  stat_qq_line()
-
-# Check heteroscedasticity or constant variance
-ggplot(d, aes(x = fitted, y = std_residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0)
-
-# Cook's D
-ggplot(d, aes(x = observation, y = cooks)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dotted") +
-  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
-# outliers
-d_outliers <- filter(d, cooks > 4/nrow(d))
-d_outliers
-
-size_pre[c(20), ]# no outlier
-
-# which distribution?
-range(size_pre$power, na.rm=TRUE)
-
-
-## beta distribution
-beta_mass <- betareg(power ~ weight, 
-           data = size_pre)
-beta0 <- betareg(power ~ 1, 
-           data = size_pre)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass) # significant effect of weight on rank
-
-
-# MODEL VALIDATION
-model <- beta_mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of power increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-
-
-
-## plots ----
-ggplot(ec_size_sex, aes(x = weight, y=power, color = sex)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight (g)", y="power score") +
-  #geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
-  geom_abline(slope = 0.04, intercept = -0.78957)
-
-
-plot_pwr_weight_bin1 <- ggplot(size_pre, aes(x = weight, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight (g)", y="power score") +
-  geom_smooth(method="lm" , color="red", fill="#69b3a2", se=TRUE) + #, color="red", fill="#69b3a2", se=TRUE)
-  annotate("text", x = 100, y = 0.99, label = "-0.59 + 0.03x")
-
-ggsave("./figures/Fig3.bodymass.pdf",  height = 3, width = 3)
-  
-```
-
-### 2. How much did mass change over initial 44 days and does this mass change influence rank? 
-excluded 3 individuals due to outlier weights at either timepoint 0 or 1
-
-```{r}
-head(size_sex)
-
-dsize <- size_sex %>%
-  group_by(id) %>% 
-  mutate(lead=lead(weight), 
-            weight_change = lead-weight) %>%
-  filter(date=="2021-04-05") #slice(1)  # lead is weight at removal1 
-head(dsize)
-
-ec_rankbin1 <- ec_rankXbin %>%
-  filter(bin==1)
-
-dsize_pwr <- dsize %>%
-  left_join(ec_rankbin1)
-
-dsize_pwr_summ <- dsize_pwr %>% ungroup() %>%
-  summarise(mean=mean(weight_change),
-            sd=sd(weight_change))
-
-ggplot(dsize_pwr, aes(x=weight_change, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="weight change (g)", y= "power score")
-
-# percent weight change to control for body size
-dsize_pwr_mean <- dsize_pwr %>%
-  left_join(mean_mass) %>%
-  mutate(perc_change = weight_change/mean*100)
-
-
-# correlation
-cor.test(dsize_pwr_mean$perc_change, dsize_pwr_mean$power, method = "spearman" )
-
-plot_pwr_change <- ggplot(dsize_pwr_mean, aes(x=perc_change, y=power)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="weight change (%)", y= "power score")
-
-#
-beta_mass <- betareg(power ~ weight*weight_change, 
-           data =dsize_pwr)
-beta0 <- betareg(power ~ 1, 
-           data = size_pre)
-lrtest(beta_mass, beta0)
-
-summary(beta_mass)
-
-lrtest(beta0, beta_mass)
-
-
-ggplot(dsize_pwr, aes(x=lead, y=power, color=weight_change)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="weight (g)", y= "power score") #+
-  #geom_smooth(method="lm" ) # , color="red", fill="#69b3a2", se=TRUE
-
-
-```
-
-### 3. rank change ~ body mass change at 3 different timepoints 
-(Bin 1 and 4; bin 5 and 8; bin 9 and 12)
-
-
-
-
-version March
-
-### basics: sex and size 
-```{r sex and size basics}
-
-# how many females and males?
-birdID_select %>%
-  group_by(sex) %>%
-  summarise(n())
-
-# mean mass by sex
-dfmass <- size_all %>%
-  filter(date %in% exp_capture_dates) %>% # 4 captures during social perturbation experiment
-  dplyr::select(date, id, weight) %>%
-  left_join(birdID_select, by="id") 
-
-mean_mass <- dfmass %>%
-  group_by(id) %>%
-  summarize(mean= mean(weight, na.rm=TRUE)) %>%
-  left_join(birdID_select, by="id") 
-t.test(mean~sex, mean_mass)
-
-# mean mass across social perturbation period
-dfmass_captures %>% 
-  ungroup()%>% 
-  filter(trial!="post") %>%
-  summarise(mean=mean(weight,na.rm=TRUE),
-            sd=sd(weight,na.rm=TRUE),
-            n=n(),
-            se=sd/sqrt(n), 
-            na.rm=TRUE)
-
-mass_sex <- dfmass_captures%>% 
-  filter(trial!="post") %>%
-  group_by(sex)%>%
-  summarise(mean=mean(weight,na.rm=TRUE),
-            sd=sd(weight,na.rm=TRUE),
-            n=n(),
-            se=sd/sqrt(n), 
-            na.rm=TRUE)
-mass_sex
-#wilcox.test(weight ~ sex, data= ec_size_sex)
-
-ec_size_sex_filt <- dfmass_captures %>% 
-  ungroup()%>% 
-  filter(trial!="post")
-t.test(weight ~ sex, data= ec_size_sex_filt)
-
-```
-### rank distribution
-
-```{r}
-
-glimpse(ec_size)
-
-id_attr <-  ec_size %>% 
-  ungroup() %>% 
-  filter(trial!="post", dom_ec!="")
-
-#### all bins excluding focals
-# filter out focal birds (could skew the results)
-focals <- c("BBB", "GPG", "OPP")
-ec_size <- ec_size %>%
-  filter(!id %in% focals)
-
-# model diagnostics
-ggplot(data = id_attr , aes(sample = dom_ec)) +
-  stat_qq() +
-  stat_qq_line()
-
-ggplot(id_attr, aes(x = bin, y = dom_ec)) +
-  geom_point() +
-  stat_smooth(method = "lm")
-
-m <- lm(dom_ec ~ weight, data =id_attr)
-summary(m)
-d <- data.frame(residuals = residuals(m),         # Residuals
-                std_residuals = rstudent(m), # Studentized Residuals
-                fitted = fitted(m),          # Fitted values
-                cooks = cooks.distance(m))   # Cook's D
-d <- mutate(d, observation = 1:nrow(d))           # Observation number
-
-# histogram of residuals
-ggplot(data = d, aes(x = std_residuals)) +
-  geom_histogram(bins = 10)
-
-# Check for Normality: QQ Normality plot of residuals
-ggplot(data = d, aes(sample = std_residuals)) +
-  stat_qq() +
-  stat_qq_line()
-
-# Check heteroscedasticity or constant variance
-ggplot(d, aes(x = fitted, y = std_residuals)) +
-  geom_point() +
-  geom_hline(yintercept = 0)
-
-# Cook's D
-ggplot(d, aes(x = observation, y = cooks)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dotted") +
-  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
-# outliers
-d_outliers <- filter(d, cooks > 4/nrow(d))
-d_outliers
-
-id_attr[c(1), ]
-id_attr[c(20), ]
-id_attr[c(34), ]
-
-# which distribution?
-range(id_attr$dom_ec, na.rm=TRUE)
-
-## beta distribution
-```
-
-
-	
-	
-
-###rank ~ mass
-
-We used a generalized mixed model for the effect of size on rank for the bins right before and right after each perturbation event and excluded the bins without weight.
-
-weight at capture 1 for both bin 1 and 2
-weight at capture 2 for bins 5 and 6
-weight at capture 3 for bins 9 and 10
-
-Check! I get same results for when focal individuals are included and when they are excluded
-```{r}
-glimpse(ec_size)
-sort(unique(ec_size$bin))
-ec_size$id <- as.factor(ec_size$id)
-ec_size$bin <- as.factor(ec_size$bin)
-
-ec_size_noNA <- ec_size %>%
-  filter(weight!="") # , bin %in% c(1,5,9)  , bin %in% c(2,6,10)
-  
-# beta regression
-beta.mass<- glmmadmb(power~ weight +  (1|id) , 
-                 data = ec_size_noNA,
-                 family="beta")
-beta.null <- glmmadmb(power~ 1 +  (1|id), 
-                 data = ec_size_noNA,
-                 family="beta")
-beta.fix <- betareg(power~ weight  , 
-                 data = ec_size_noNA)
-
-AIC(beta.mass, beta.null, beta.fix)
-
-summary(beta.massR1)
-
-lrtest(beta.massR1, beta.null)
-
-## excluding focal birds
-ecsize <- ec_size %>%
-  filter(weight!="", !id %in% c("BBB", "GPG", "OPP")) # , bin %in% c(1,5,9)
-unique(ecsize$id)  
-
-
-beta.mass<- glmmadmb(power~ weight +  (1|id) , 
-                 data = ecsize,
-                 family="beta")
-beta.null <- glmmadmb(power~ 1 +  (1|id), 
-                 data = ecsize,
-                 family="beta")
-beta.fix <- betareg(power~ weight  , 
-                 data = ecsize)
-
-AIC(beta.mass, beta.null, beta.fix)
-
-summary(beta.mass)
-
-lrtest(beta.mass, beta.null)
-
-# MODEL VALIDATION
-model <- beta.mass
-1-var(residuals(model)/var(model.response(model.frame(model))))
-
-      
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) 
-
-
-# odds ratio
-exp(coef(model))
-# E.g., The odds of perching increases/decreases by a factor of .. (.. times more likely) for every unit increase in x
-
-## plot supplemental material----
-
-# with focals
-ggplot(ec_size , aes(x=weight, y=flipped_score)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight (g)", y="power score") +
-  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
-  facet_wrap(~ bin, nrow=3, ncol=2)
-  #geom_smooth()
-  #geom_abline(slope = -2.38, intercept = -0.17)
-
-ggsave("./figures/plot_rank~mass.pdf")
-
-# without focals
-ggplot(ecsize , aes(x=weight, y=flipped_score)) +
-  geom_point() +
-  theme_classic() +
-  labs(x="body weight (g)", y="power score") +
-  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
-  facet_wrap(~ bin, nrow=3, ncol=2)
-  #geom_smooth()
-  #geom_abline(slope = -2.38, intercept = -0.17)
-
-ggsave("./figures/FigSM3_rank~mass_nofocals.pdf")
-
-```
-
-
-
-### rank ~ sex
-
-Permutations of binning with sex as we want to see per bin whether sex differences exist.
-
--	Reassign sex for all bins once, find rank for each bin; how does sex correlate with rank (12 correlations). Column for each bin (average correlation of rank on sex for all bins). 
-
-1. Reassign sex for all bins once
-2. find rank for each bin
-3. regression between sex and rank (12 bins thus 12 regressions)
-
--> row = sex, column = bins 
-
-4. 	Plot observed correlation on x axis and randomized correlation on y axes  
-
-
-	regress rank on sex (arrange by power score through reorder funtion within ggplot) then plot by bin and combine plots per trial. 
-
-Anidom::plot_ranks(ranks, plot.CIs = FALSE, ordered.by.rank = TRUE, 
-	identities = NULL, plot.identities = TRUE, colors = NULL)
-
-Bins (rank assessment points): 2 and 3, 6 and 7,  10 and 11 -> these are the bins where the focal is removed. 
-
-
-```{r sex on rank}
-
-
-# add sex to rank df
-ec_sex <- ec_rankXbin %>% 
-  group_by(bin) %>%
-  left_join(birdID_select, by="id") 
-
-ec_sex_wide <- ec_rankXbin %>% 
-  group_by(bin) %>%
-  left_join(birdID_select, by="id") %>%
-  dplyr::select(id,sex, bin, power) %>%
-  arrange(bin) %>%
-  pivot_wider(names_from=bin,
-              names_prefix = "bin",
-              values_from=power)
-
-
-glimpse(ec_sex_wide)
-#sort(unique(ec_sex$bin))
-#ec_sex$sex <- as.factor(ec_sex$sex)
-#ec_sex$bin <- as.factor(ec_sex$bin)
-#ec_sex$id <- as.factor(ec_sex$id)
-
-set.seed(7)
-	# Randomise sex
-	s <- sample(1:length(ec_sex_wide$id))
-	s
-	ec_sex$sex.random <- ec_sex_wide$sex[s]
-
-	# long format for loop
-	ec_sex_long <- ec_sex_wide %>% 
-	  dplyr::select(id, sex,sex.random, everything()) %>%
-	  pivot_longer(cols = !c("id", "sex", "sex.random"),
-	               names_to = "bin", 
-	               values_to = "dom_ec")
-
-# make empty data frame to put data in
-sexresult <- data.frame(run.code=character(),
-                      obs.coef.sex.lm=numeric(),
-                      ran.coef.sex.lm=numeric(),
-                      obs.coef.sex.beta=numeric() ,
-                      ran.coef.sex.beta=numeric())
-
-# run = 1
-
-start.time <- Sys.time()
-
-loopby<-unique(ec_sex_long$bin)
-
-#i=1
-
-for(i in seq_along(unique(ec_sex_long$bin))){
-  run.code <- loopby[i]
-  print(run.code)
-  run.data <- subset(ec_sex_long , bin==run.code)
-  
-  obs_sex <- wilcox.test(run.data$dom_ec ~ run.data$sex)
-obs.coef.sex.lm <- coefficients(lm(dom_ec ~ sex,
-                                   data=run.data))[2]	
-ran.coef.sex.lm <- coefficients(lm(dom_ec ~ sex.random,
-                                   data=run.data))[2]	
-
-obs.coef.sex.beta <- coefficients(betareg(dom_ec ~ sex, 
-                                          data=run.data))[2]	
-ran.coef.sex.beta <- coefficients(betareg(dom_ec ~ sex.random, 
-                                          data=run.data))[2]
-
-  # combine in dataframe
-  pool <- cbind.data.frame(run.code,
-                         obs.coef.sex.lm,
-                         ran.coef.sex.lm,
-                         obs.coef.sex.beta ,
-                         ran.coef.sex.beta)
-
-  sexresult <-rbind(sexresult, pool )
-
-}
-
-end.time <- Sys.time()
-
-#Time to run:
-end.time - start.time
-
-
-head(sexresult)
-
-# plot 
-
-# beta regression
-cor.test(sexresult$obs.coef.sex.beta, sexresult$ran.coef.sex.beta, method="spearman")
-cor(sexresult$obs.coef.sex.beta, sexresult$ran.coef.sex.beta, method="spearman")
-
-ggplot(sexresult, aes(x=obs.coef.sex.beta, y=ran.coef.sex.beta)) +
-  geom_point(size=5) +
-  theme_classic() + 
-  labs(x="observed estimate",
-       y="random estimate") +
-  theme(text = element_text( colour = "#2F4858"),
-        axis.title = element_text(colour = "#2F4858", size = 24),
-        axis.text = element_text(colour = "#2F4858", size = 24),
-        #axis.text.y=element_blank(), # remove y-axes labels
-        #axis.text.x=element_blank(), # remove x-axis labels
-        #axis.ticks.x=element_blank(),
-        
-        #legend.position = "none",
-        #legend.text = element_text(colour = "#2F4858", size = 24),
-        #legend.title = element_text(colour = "#2F4858", size = 24),
-        panel.grid = element_blank(),
-        plot.background = element_rect(fill = "white", colour = "white"),
-        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
-        plot.caption = element_text(size = 10), 
-        plot.margin = unit(c(1, 1, 0.5, 1), "cm"))
-	ggsave("./output/plot_betareg_sex_rank.pdf", width=8, heigh = 6)
-	
-# linear regression
-cor.test(sexresult$obs.coef.sex.lm, sexresult$ran.coef.sex.lm, method="spearman")
-cor(sexresult$obs.coef.sex.lm, sexresult$ran.coef.sex.lm, method="spearman")
-
-mean(sexresult$obs.coef.sex.lm)
-mean(sexresult$ran.coef.sex.lm)
-
-	ggplot(sexresult, aes(x=obs.coef.sex.lm, y=ran.coef.sex.lm)) +
-  geom_point(size=5) +
-  theme_classic() + 
-  labs(x="observed estimate",
-       y="random estimate") +
-  theme(text = element_text( colour = "#2F4858"),
-        axis.title = element_text(colour = "#2F4858", size = 24),
-        axis.text = element_text(colour = "#2F4858", size = 24),
-        #axis.text.y=element_blank(), # remove y-axes labels
-        #axis.text.x=element_blank(), # remove x-axis labels
-        #axis.ticks.x=element_blank(),
-        
-        #legend.position = "none",
-        #legend.text = element_text(colour = "#2F4858", size = 24),
-        #legend.title = element_text(colour = "#2F4858", size = 24),
-        panel.grid = element_blank(),
-        plot.background = element_rect(fill = "white", colour = "white"),
-        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
-        plot.caption = element_text(size = 10), 
-        plot.margin = unit(c(1, 1, 0.5, 1), "cm"))
-	ggsave("./figures/plot_lm_sex_rank.pdf", width=8, heigh = 6)
-	
-
-### plot SM4 -----
-glimpse(ec_sex)
-
-# plot sex on rank (loop through bins)
-#showbins<- c(2,3,6,7,10,11)
-
-loopby <- sort(unique(ec_sex$bin))
-
-i=1
-
-
-# create a loop to read in your data
-for (i in 1:length(loopby)) {
-  focal.period <- loopby[i] #extract long name of data file of interest (focal)
-  plot.data <- subset(ec_sex, bin==focal.period)
-
-plot_sexXbin <- ggplot(plot.data, 
-                       aes(x=reorder(id, -power), y= power, color=sex)) +
-  geom_point(size=5) + 
-  #scale_y_continuous(limits = c(0.0-0.2)) +
-  theme_classic() +
-  theme(axis.title = element_blank(),
-        #axis.text.y=element_blank(),
-        axis.text.x=element_blank(),
-        #axis.ticks.x=element_blank(),
-        legend.position = "none",
-        )
-
-#jpeg(filename= paste("./figures/plot_sexrank_",i,".png", sep= ""))
- #  print(plot_sexXbin)
-  # dev.off()
-
-ggsave(paste("./figures/FigSM4_corr_sex_rank",i,".pdf"), width=3, height = 3)
-
-}
-
-```
-
-
-
-
