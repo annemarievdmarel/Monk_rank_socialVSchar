@@ -927,7 +927,7 @@ BOB on 2021-07-08 bird bag weight of 169.77 -> 109.1 (too low)
 OOO on 2021-06-23 bird weight of 72.82 -> too low (always around 115/120)
 BBB on 2021-07-05 bird weight of 86.8 -> very low compared to other weights (always above 110)
 PPB on 2021-04-05 bird weight of 86.2 -> very low compared to other weights(always above 100)
-PPB on 2021-04-05 bird weight of 89.2 -> very low compared to other weights(always above 110)
+GPG on 2021-04-05 bird weight of 89.2 -> very low compared to other weights(always above 110)
 
 ```{r remove outlier weights }
 size_good <- size %>%
