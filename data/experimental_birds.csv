@@ -1,0 +1,29 @@
+bandID,sex,site_captured,group_21,mark_21,group_22,mark_22,commentS
+BB1245,male,Perrine,2021,OOO,1_west,BBB,
+BB1158,male,Florida City,2021,OBB,2_east,BBO,
+BB1155,male,Florida City,2021,PPP,1_west,BOB,
+BB1152,female,Florida City,,,2_east,GGG,
+BB1257,male,Galloway,2021,OPP,1_west,GGP,reads as BB1251 at field station database
+BB1241,female,Perrine,2021,POP,2_east,GOO,
+BB1156,male,Florida City,2021,GOP,2_east,GOP,
+BB1255,male,Galloway,2021,POO,2_east,GPG,
+BB1218,female,Florida City,2021,PBO,1_west,GPO,
+BB1215,female,Florida City,,,2_east,OBB,
+BB1214,male,Florida City,,,2_east,OGO,
+BB1157,male,Florida City,,,1_west,OOO,
+BB1246,female,Goulds,2021,GGO,2_east,OOP,
+BB1242,male,Perrine,2021,PPO,1_west,OPO,
+BB1210,female,Florida City,,,1_west,OPP,
+BB1248,male,Goulds,2021,GPG,1_west,PBO,
+BB1250,female,Goulds,2021,GGG,2_east,PBP,
+A200,female,Florida City,,,1_west,PGG,formerly BB1212
+BB1247,male,Florida City,,,2_east,POO,formerly BB1216
+BB1252,female,Galloway,2021,PPB,1_west,POP,
+BB1211,female,Florida City,,,1_west,PPO,PPO included in group 1 instead of BB1217 on day 1
+BB1159,male,Florida City,2021,GOO,2_east,PPP,PPP included in group 2 instead of BB1253 on day 2.5
+BB1253,male,Galloway,2021,BBB,,,"PPP excluded on day 2.5, swapped with BB1159"
+BB1240,male,Perrine,2021,BOB,,,
+BB1154,male,Florida City,2021,OGO,,,
+BB1254,female,Goulds,2021,OOP,,,
+BB1249,female,Goulds,2021,PBB,,,
+BB1244,male,Perrine,2021,PGG,,,

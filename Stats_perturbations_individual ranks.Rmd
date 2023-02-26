@@ -1,0 +1,3532 @@
+---
+title: "Stats_perturbation_individual ranks"
+author: "Annemarie van der Marel"
+date: '2022-09-06'
+output: html_document
+---
+
+Questions
+Which rank determinant do species primarily use, simple rules or information-rich rules? 
+
+Can removed birds retake their rank position upon reintroduction? All birds suffer a drop in power score than social history may play significant role in rank determination. If birds retake their previous position, individual characteristics may play a role. 
+
+Does this power score loss differ across varying ranks? /Do top-ranked and control (middle/bottom-ranked) birds re-take their ranks in hierarchies similarly after reintroduction? Top-ranked birds suffer a greater drop in rank than control birds	
+
+
+
+R code to obtain the dominance hierarchy of 3-day period 
+  - correlation dominance rank between 2021 and 2022
+  - power score changes
+  - mass changes
+
+Figures
+1. Rank plot 
+2. power score changes
+3. correlation
+4. focal mass changes
+  
+Supplemental Material
+SM1. Experimental schedule and descriptive summary
+  -	Number of aggressive events observed
+  -	Hours observed
+SM2. Justification pooling agonistic behaviors 
+SM3. Justification of using body mass as individual characteristic
+SM4. Average power score change vs power score change focal
+
+
+
+# Load packages
+```{r, include=FALSE, echo=FALSE}
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(purrr)
+library(domstruc) #install_github("danm0nster/domstruc")
+library(ggbump)
+library(lubridate)
+library(ggthemes)
+library(ggrepel)
+library(ggpubr)
+library(betareg)
+library(glmmADMB)
+library(lme4)
+library(lmtest)
+library(pwr)
+library(effsize)
+library(RColorBrewer)
+library(emmeans)
+library(gamlss)
+library(gamlss.dist)
+library(gamlss.add)
+library(glmmTMB) 
+library(car) 
+library(effects)
+library(multcomp)
+library(MuMIn) 
+require(DHARMa, quietly = TRUE) 
+library(rmcorr)
+library(rptR)
+
+#citation("betareg")
+#citation("rptR")
+```
+
+
+
+# Import data
+
+```{r}
+##  EXPERIMENTAL BIRDS
+birdIDs <- read.csv("./data/experimental_birds.csv")
+
+focals22 <- read.csv("./data/2022_focal_birds.csv") 
+
+## TIMELINE
+bin.dates21 <- read.csv("./data/2021_3daybins.csv")
+focal_rank21 <- bin.dates21 %>%
+  mutate(year=2021, focalrank="top-ranked") %>%
+  dplyr::select(year, bin, focalrank) %>%
+  filter(bin!="", bin!="morning obs until 11 am due to storm")  %>%
+  group_by(bin) %>%
+  slice(1)
+
+
+obs.day.key22 <- read.csv("./data/2022_timeline.csv") 
+bin_dates22 <- obs.day.key22 %>% 
+  dplyr::select(date,perturbation, experiment,focal_bird,dompattern_focal, bin) %>%
+  filter(bin!="NA") %>%
+  mutate(day=row_number())
+
+trap_dates <- obs.day.key22 %>% 
+  dplyr::select(date,perturbation, experiment,dompattern_focal,capture,  bin) %>%
+  filter(capture!="")
+
+# include focal bird ranks
+focal_rank22 <- bin_dates22 %>%
+  mutate(year=2022) %>%
+  dplyr::select(year, bin, dompattern_focal) %>%
+  rename(focalrank=dompattern_focal) %>%
+  group_by(bin) %>%
+  slice(1)
+
+
+
+## POWER SCORE
+# 2021
+powerXbin21 <- read.csv("./output/MOPA_power score_2021.csv") 
+
+powerbin2start <- read.csv("./data/power_bin2fromstart.csv")
+
+# update bin number so that they are the same in both years
+powerXbin21$bin[powerXbin21$bin==13] <- 14
+powerXbin21$bin[powerXbin21$bin==12] <- 13
+powerXbin21$bin[powerXbin21$bin==11] <- 12
+powerXbin21$bin[powerXbin21$bin==10] <- 11
+powerXbin21$bin[powerXbin21$bin==9] <- 10
+powerXbin21$bin[powerXbin21$bin==8] <- 9
+powerXbin21$bin[powerXbin21$bin==7] <- 8
+powerXbin21$bin[powerXbin21$bin==6] <- 7
+powerXbin21$bin[powerXbin21$bin==5] <- 6
+powerXbin21$bin[powerXbin21$bin==4] <- 5
+powerXbin21$bin[powerXbin21$bin==3] <- 4
+powerXbin21$bin[powerXbin21$bin==2] <- 3
+powerXbin21$bin[powerXbin21$bin==1] <- 2
+powerXbin21$bin[powerXbin21$bin==0] <- 1
+
+checkbins <- powerXbin21 %>%
+  group_by(bin) %>%
+  tally()
+unique(powerXbin21$bin)
+
+# 2022
+powerXbin22 <- read.csv("./output/MOPA_power score_2022.csv")
+
+checkbins <- powerXbin22 %>%
+  group_by(bin) %>%
+  tally()
+unique(powerXbin22$bin)
+rm(checkbins)
+
+## BODY MASS DATA
+bins <- read.csv("./data/captures_bins.csv")
+
+trap_file21<- read.csv("./data/morphometrics_focals_2021.csv") #%>%
+  #dplyr::select(perturbation, date, id, weight)
+
+size_bc21 <- read.csv("./data/body condition.csv")
+
+trap_file22 <- read.csv("./data/2022_MOPA_capture file.csv")
+```
+
+
+# descriptive stats
+
+
+## no. of birds
+Number of birds used both in 2021 and 2022
+```{r}
+
+# experimental birds
+length(birdIDs$bandID) # 28 total experimental birds
+
+nbirdsall <- birdIDs %>%
+  filter(group_21!="NA", group_22!="")
+
+repeatbirds <- unique(nbirdsall$bandID)
+
+nbirds21 <-   birdIDs %>%
+  filter(group_21!="NA")
+
+nbirds22 <-   birdIDs %>%
+  filter(group_22!="")
+
+# percent repeats in both years
+length(nbirdsall$bandID)/length(nbirds22$bandID)
+
+# focals?
+focalbirds21 <- c("BBB", "GPG", "OPP")
+focalbirds22 <- focals22$focal
+
+birdIDs$focal21[birdIDs$mark_21 %in% focalbirds21] <- "yes"
+birdIDs$focal22[birdIDs$mark_22 %in% focalbirds22] <- "yes"
+birdIDs$focal21[is.na(birdIDs$focal)] <- "no"
+birdIDs$focal22[is.na(birdIDs$focal)] <- "no"
+
+# clean environment
+rm(nbirds21, nbirdsall, nbirds22)
+```
+63.6 percent of birds were repeats in year 1 and 2
+
+## total aggression
+```{r}
+
+```
+
+
+
+
+# ready data and functions
+
+## Theme set ggplot
+```{r}
+#theme_get()
+old <- theme_set(theme_bw())
+
+theme_new <- theme_set(theme_classic()) +
+  theme(axis.title = element_text(colour = "#2F4858", size = 16),
+        axis.text.y=element_text(colour = "#2F4858", size = 16),
+        axis.text.x=element_text(colour = "#2F4858", size = 16),
+        #axis.ticks.x=element_blank(),
+        legend.position = "none",
+        #text = element_text(family = "Montserrat", colour = "#2F4858"),
+        plot.background = element_rect(fill = "white", colour = "white"),
+        #axis.text = element_text(colour = "#2F4858", size = 18), #, face = "bold"
+        panel.grid = element_blank(),
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+        plot.caption = element_text(size = 18), 
+        plot.margin = unit(c(1, 1, 0.5, 1), "cm"))
+
+
+## from power dynamics
+# theme_classic() +
+#   theme(axis.title = element_text(colour = "#2F4858", size = 18),
+#         axis.text.y=element_text(colour = "#2F4858", size = 18),
+#         axis.text.x=element_text(colour = "#2F4858", size = 18),
+#         #axis.ticks.x=element_blank(),
+#         legend.position = "none",
+#         #text = element_text(family = "Montserrat", colour = "#2F4858"),
+#         plot.background = element_rect(fill = "white", colour = "white"),
+#         #axis.text = element_text(colour = "#2F4858", size = 18), #, face = "bold"
+#         panel.grid = element_blank(),
+#         plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+#         plot.subtitle = element_text(size = 20, hjust = 0.5, lineheight = 1.15),
+#         plot.caption = element_text(size = 18), 
+#         plot.margin = unit(c(1, 1, 0.5, 1), "cm")) 
+
+
+```
+
+## unique colors/bird
+
+from https://graphicdesign.stackexchange.com/questions/3682/where-can-i-find-a-large-palette-set-of-contrasting-colors-for-coloring-many-d/3815 
+
+```{r}
+n_distinct(birdIDs$bandID)
+
+# 26 qualitatively different colors from Dave Keenan
+colors26 <-  c("#00B7FF", "#004DFF", "#00FFFF", "#826400", "#580041", "#FF00FF", "#00FF00",
+               "#C500FF", "#B4FFD7", "#FFCA00", "#969600", "#B4A2FF", "#C20078", "#0000C1",
+               "#FF8B00", "#FFC8FF", "#666666", "#FF0000", "#CCCCCC", "#009E8F", "#D7A870", 
+               "#8200FF", "#960000", "#BBFF00", "#FFFF00", "#006F00", "#1f78b4", "#8E0152") # "#1f78b4", "#8E0152" are the extr 2 colors
+
+set.seed(42)
+colorXbird <-  sample(colors26, n_distinct(birdIDs$bandID))
+
+
+birdIDs_all <- bind_cols(birdIDs, colorXbird) 
+birdIDs_color <- birdIDs_all %>%
+  rename(unicol=...11)
+
+
+# custom colors using Rcolorbrewer
+display.brewer.all()
+# Make a palette by drawing pseudo random colors from `RColorBrewer`
+set.seed(42)
+custom_palette <- c(RColorBrewer::brewer.pal(11, "RdYlBu"),
+                    RColorBrewer::brewer.pal(11, "PiYG"),
+                    RColorBrewer::brewer.pal(11, "PuOr")) %>% 
+  sample(n_distinct(birdIDs$bandID))
+
+# custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
+#                     RColorBrewer::brewer.pal(8, "Dark2"),
+#                     RColorBrewer::brewer.pal(3, "Set2")) %>% 
+#   sample(n_distinct(birdIDs$bandID))
+
+# custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
+#                     RColorBrewer::brewer.pal(8, "Dark2"),
+#                     RColorBrewer::brewer.pal(9, "Set2")) %>% 
+#   sample(22) #n_distinct(ec_rankXbin$id)
+
+
+birdIDs <- bind_cols(birdIDs, custom_palette) 
+birdIDs <- birdIDs %>%
+  rename(color=...11)
+
+birdIDs$color[birdIDs$bandID=="BB1248"]<- "#6a51a3"
+
+```
+
+color schemes that did not work really well
+```{r}
+# from blog post http://godsnotwheregodsnot.blogspot.com/2012/09/color-distribution-methodology.html
+colors64 <- c("#000000", "#FFFF00", "#1CE6FF", "#FF34FF", "#FF4A46", "#008941", "#006FA6", "#A30059",
+"#FFDBE5", "#7A4900", "#0000A6", "#63FFAC", "#B79762", "#004D43", "#8FB0FF", "#997D87",
+"#5A0007", "#809693", "#FEFFE6", "#1B4400", "#4FC601", "#3B5DFF", "#4A3B53", "#FF2F80",
+"#61615A", "#BA0900", "#6B7900", "#00C2A0", "#FFAA92", "#FF90C9", "#B903AA", "#D16100",
+"#DDEFFF", "#000035", "#7B4F4B", "#A1C299", "#300018", "#0AA6D8", "#013349", "#00846F",
+"#372101", "#FFB500", "#C2FFED", "#A079BF", "#CC0744", "#C0B9B2", "#C2FF99", "#001E09",
+"#00489C", "#6F0062", "#0CBD66", "#EEC3FF", "#456D75", "#B77B68", "#7A87A1", "#788D66",
+"#885578", "#FAD09F", "#FF8A9A", "#D157A0", "#BEC459", "#456648", "#0086ED", "#886F4C",
+"#34362D", "#B4A8BD", "#00A6AA", "#452C2C", "#636375", "#A3C8C9", "#FF913F", "#938A81",
+"#575329", "#00FECF", "#B05B6F", "#8CD0FF", "#3B9700", "#04F757", "#C8A1A1", "#1E6E00",
+"#7900D7", "#A77500", "#6367A9", "#A05837", "#6B002C", "#772600", "#D790FF", "#9B9700",
+"#549E79", "#FFF69F", "#201625", "#72418F", "#BC23FF", "#99ADC0", "#3A2465", "#922329",
+"#5B4534", "#FDE8DC", "#404E55", "#0089A3", "#CB7E98", "#A4E804", "#324E72", "#6A3A4C")
+
+set.seed(42)
+colorXbird <-  sample(colors64, n_distinct(birdIDs$bandID))
+
+
+birdIDs_all <- bind_cols(birdIDs, colorXbird) 
+birdIDsall <- birdIDs_all %>%
+  rename(colorXbird=...10)
+
+```
+
+
+
+## bird list
+```{r}
+birds21 <- birdIDs_color %>%
+  dplyr::select(bandID, sex, site_captured, group_21, mark_21, unicol) %>%
+  filter(mark_21!="") %>%
+  #mutate(group="2021") %>%
+  rename(id=mark_21,
+         group=group_21)
+birds21$focal[birds21$id %in% focalbirds21] <- "yes"
+birds21$focalrank[birds21$id %in% focalbirds21] <- "top-ranked"
+birds21$focal[is.na(birds21$focal)] <- "no"
+
+birds22 <- birdIDs_color %>%
+  dplyr::select(bandID, sex, site_captured, group_22, mark_22, unicol) %>%
+  filter(mark_22!="") %>%
+  rename(id=mark_22,
+         group=group_22)
+birds22$focal[birds22$id %in% focalbirds22] <- "yes"
+birds22$focalrank[birds22$id %in% c("PBO", "BBO", "GPO", "GOO", "BBB", "GOP")] <- "top-ranked"
+birds22$focalrank[birds22$id %in% c("OOO", "OBB", "PGG", "PBP", "OPP", "OGO")] <- "control"
+birds22$focal[is.na(birds22$focal)] <- "no"
+
+bird.list <- sort(unique(birdIDs$mark_id)) # change each time
+length(bird.list)
+bird.list
+
+# list of all possible dyads
+dyad.list <- expand.grid(bird.list, bird.list) #head(dyad.list)
+names(dyad.list) <- c("actor", "subject")
+dyad.list <- subset(dyad.list, actor!=subject)
+dyad.list$dyadID <- paste(dyad.list$actor, dyad.list$subject, sep="-")
+```
+
+## power score
+```{r}
+
+
+# power score
+# 2021
+power21 <- powerXbin21 %>%
+  mutate(year=2021, group=2021) %>%
+  dplyr::select(year, everything(), -X) %>%
+  left_join(birds21)
+power21$group <- as.character(power21$group)
+
+# 2022
+power22 <- powerXbin22 %>%
+  dplyr::select(-X, -group) %>%
+  #rename(group22=group) %>%
+  left_join(birds22) %>%
+  dplyr::select(year, bin, id, dom_ec, rank, power, group, everything())
+
+
+# combine
+power <- bind_rows(power21, power22)
+glimpse(power)
+
+#rm(power21, power22)
+```
+
+## body mass data
+dates
+```{r}
+group_capture_dates <- c("2021-04-05", 
+                       "2021-05-19", "2021-06-05", 
+                       "2021-06-23", "2021-07-05",
+                       "2022-01-19","2022-01-29", 
+                       "2022-02-15", "2022-03-04", 
+                       "2022-03-22", "2022-04-08",
+                       "2022-04-25", "2022-05-12")
+focal_reintro_dates <- c("2021-05-28", "2021-06-14", "2021-07-02",
+                         "2022-02-07", "2022-02-24", "2022-03-14",
+                         "2022-03-31" ,"2022-04-17", "2022-05-04")
+
+```
+
+
+
+### check 2021
+
+```{r ready data}
+
+# add size of birds (mass)
+glimpse(trap_file21)
+
+exp_capture_dates21 <- c("2021-04-05", "2021-05-19", "2021-06-05", "2021-06-23", "2021-07-05",
+                         "2021-05-28", "2021-06-14", "2021-07-02")
+
+size21 <- trap_file21  %>%
+  filter(date %in% exp_capture_dates21 )
+
+unique(size21$date) # 2021-05-19 = capture event for body mass prior social perturbation experiment
+
+length(trap_file21$id)
+n_distinct(trap_file21$id)
+
+# add sex 
+birds21 <- birdIDs_color %>%
+  dplyr::select(bandID, sex, site_captured, mark_21, colorXbird, unicol) %>%
+  filter(mark_21!="") %>%
+  rename(id=mark_21)
+
+
+```
+
+
+
+```{r check body mass}
+size <- size21
+# weight bird bag (should be around 145/146 g)
+range(size$weight2, na.rm=TRUE)
+
+range(size$weight1) # weight with bag 
+
+# weight of bird (should be between around 110 + or - ~10)
+range(size$weight, na.rm=TRUE)
+
+
+```
+
+IDs with potentially wrong body mass -> exclude:
+BBB on 2021-04-05 bird bag weight of 112.08 -> 105.8 (too low)
+POP on 2021-06-23 bird bag weight of 129.94 -> 121.4 (too high)
+BOB on 2021-07-08 bird bag weight of 169.77 -> 109.1 (too low)
+
+OOO on 2021-06-23 bird weight of 72.82 -> too low (always around 115/120)
+BBB on 2021-07-05 bird weight of 86.8 -> very low compared to other weights (always above 110)
+PPB on 2021-04-05 bird weight of 86.2 -> very low compared to other weights(always above 100)
+GPG on 2021-04-05 bird weight of 89.2 -> very low compared to other weights(always above 110)
+
+```{r remove outlier weights }
+size_good <- size %>%
+  filter(!weight %in% c(72.82, 86.20, 86.80, 89.20, 109.1, 121.4), weight2!=112.08) %>%  
+  drop_na() %>%
+  dplyr::select(date, id, weight, perturbation) %>%
+  left_join(birds21)
+
+unique(size_good$date)
+
+# mean body mass 
+mean(size_good$weight)
+sd(size_good$weight)
+
+size21 <- size_good
+n_distinct(size21$id)
+```
+
+
+### check 2022
+```{r}
+
+#experimental birds
+birds22 <- birdIDs_color %>%
+  dplyr::select(bandID, group_22, sex, site_captured, mark_22, unicol) %>%
+  filter(mark_22!="") %>%
+  rename(id=mark_22, 
+         group=group_22)
+
+
+# all experimental dates including reintroductions
+exp_capture_dates22_all <- c("2022-01-19", # start
+                           "2022-01-29", "2022-02-07", # trial 1
+                           "2022-02-15", "2022-02-24", # trial 2
+                           "2022-03-04", "2022-03-14", # trial 3
+                           "2022-03-22", "2022-03-31", # trial 4
+                           "2022-04-08", "2022-04-17", # trial 5
+                           "2022-04-25", "2022-05-04", # trial 6
+                           "2022-05-12") # end
+
+# experimental dates excluding reintroductions
+exp_capture_dates22 <- c("2022-01-19","2022-01-29", 
+                       "2022-02-15", "2022-03-04", 
+                       "2022-03-22", "2022-04-08",
+                       "2022-04-25", "2022-05-12")
+
+```
+
+```{r ready data}
+
+# add size of birds (mass)
+glimpse(trap_file22)
+
+# change date format to yyyy-mm-dd
+trap22 <- trap_file22 %>% 
+  dplyr::select(-sex) %>%
+  rename(id=mark_id, 
+         bandID=band_id) %>%
+  separate(date, c(  "month","day" ,"year"), sep="/")
+
+trap22$day <- as.numeric(trap22$day)
+trap22$day <- str_pad(trap22$day, 2, pad="0")
+  
+trap22$month <- as.numeric(trap22$month)
+trap22$month <- str_pad(trap22$month, 2, pad="0")
+
+trap22$year <- as.numeric(trap22$year)
+
+size <- trap22 %>% 
+  unite(date, year, month, day, sep = "-") %>%
+  group_by(bandID) %>%
+  arrange(date)
+
+
+# summarize
+size_check <- size %>%
+  group_by(date) %>%
+  tally()
+
+
+# IDs correct? double checked with trap book
+# BBO on 2022-03-22 had BB1258 written in trap book but should have been BB1158 -> changed in trap file itself
+
+# BB1251/57  -> GGP hard to read the one, sometimes also read or noted down as BB1257 -> we  changed all instances to BB1257, as bird list in 2021 and 2022 is BB1257
+size$bandID[size$bandID=="BB1251"] <- "BB1257"
+
+##We had to exclude 1 bird in each flight pen and swap it with another bird. 
+##In group 1 west, we excluded PPO (BB1217) excluded on experimental day 1 at 2022-01-19 and replaced her with BB1211 as the new PPO.
+##We included BB1159 (new PPP) in group 2 east flight pen instead of BB1253 on day 2.5, January 21 at 17:00. -> will change date to 2022-01-19 to count as first capture date 
+# PPO as both BB1217( excluded) and BB1211  
+#size$band_id[size$band_id=="BB1217"] <- "BB1211" # PPO as BB1217 on 2022-02-15 (while this bird was excluded) 
+
+size_exc <- size %>%
+  filter(!bandID %in%  c("BB1217","BB1253"))
+
+size_exc$date[size_exc$date=="2022-01-21"] <- "2022-01-19"
+
+# check
+size_check <- size_exc %>%
+  group_by(date) %>%
+  tally()
+
+
+# add group + sex 
+size22 <- size_exc %>%
+  left_join(birds22) %>%
+  filter( bandID %in%  birds22$bandID, date %in% exp_capture_dates22_all) # only select experimental period from 2022-01-19  
+
+unique(size22$id)
+length(unique(size22$id)) # it should be 22 birds
+
+# check
+size_check <- size22 %>%
+  group_by(date, group) %>%
+  tally()
+
+
+```
+
+
+
+
+```{r check body mass}
+
+# weight bird bag (should be around 23/24 g)
+range(size22$weight1, na.rm=TRUE)
+mean(size22$weight1, na.rm=TRUE)
+
+# weight with bird bag
+range(size22$weight2, na.rm=T) # weight with bag 
+
+# weight of bird (should be between around 110 + or - ~10)
+range(size22$weight, na.rm=TRUE)
+
+check_size <- size22 %>%
+  group_by(id) %>%
+  arrange(id, date)
+
+```
+IDs with potentially wrong body mass -> 
+
+2022
+exclude:
+!? 2022-03-14 PBP 118.94 258.49 139.55 -> high compared to others (always below 130g)
+!? 2022-03-14 PGG 119.20 264.38 145.18 -> very high compared to others (below 120)
+!? 2022-05-12 OOO weight of 97.50 -> very low compared to others (always above 100) but he has a long infection, still exclude as the next weight is 106 again.
+!? 2022-02-15 PPO 23.60 116.48 92.88 -> low compared to others (always above 106g)
+
+potentially exclude:
+? 2022-03-04 PBP 22.86 129.38 106.52 -> low compared to others (always above 113g)
+? 2022-05-12 GOP 23.56 132.68 109.12 
+? 2022-05-12 GPG with bird bag weight of 20.15 -> low compared to others(23/24g)
+? 2022-01-29 OPP with weight of 108.91 -> low compared to others (in the mid 110's or above 120 and even 130)
+
+
+I'm afraid that the weights recorded for the focals of trial 3 should be excluded (2022-03-14) but it is possible that these birds gained this much weight during the removal period. 
+Perhaps on 2022-01-29, we used a different scale (property of the biological station) with more wind, so that the weights that day may not have been accurate (at least for group 1_west)
+
+```{r remove outlier weights }
+size_good <- size22 %>%
+  filter(date!="2022-03-14",!weight %in% c(97.50, 92.88) ) %>%  #
+  #drop_na() %>%
+  dplyr::select(date, group, bandID, id,sex, weight,culmen_width) 
+
+unique(size_good$date)
+
+size22<- size_good
+
+#write.csv(size_good, "./output/mopa_mass_2022.csv")
+
+```
+
+### combine
+```{r}
+size_all <- size21 %>% 
+  mutate(group="2021", 
+         year=2021) %>%
+  dplyr::select(year, date, group, bandID, id, sex, weight) %>%
+  bind_rows(size22 %>%
+              mutate(year=2022) %>%
+              dplyr::select(year, date, group, bandID, id, sex, weight))
+
+unique(size_all$date)
+
+```
+
+
+# Testing whether social processes underly rank
+
+
+## power score dynamics
+visualize power score over time 
+
+remove segment for removed birds:
+https://github.com/davidsjoberg/ggbump/wiki/My-year-on-Spotify (example)
+
+Use long perturbation (both removal and reintroduction) for all birds except focals than add each focal without reintroduction period into plot. 
+
+color scheme from 
+```{r 2021 power score over time X rank assessment point }
+# flip scores so larger numbers are higher scored 
+# remove focal birds from overall plot
+
+head(power)
+glimpse(power)
+range(power$power)
+power$bin <- as.integer(power$bin)
+
+power_plot_21 <- power %>% 
+  filter(year==2021)
+range(power_plot_21$power)
+
+# exclude the focal birds
+power_plot_nonfocals <- power %>% 
+  filter(year==2021, !id %in% c("BBB", "GPG", "OPP"))
+unique(power_plot_nonfocals$id)
+length(unique(power_plot_nonfocals$id))
+
+glimpse(power_plot_nonfocals)
+power_plot_nonfocals$bin <- as.integer(power_plot_nonfocals$bin)
+
+## plot (highlight most dominant)
+# first plot the nonfocal birds
+plot <- ggplot(power_plot_nonfocals, aes(x=bin, y=power, color=id)) +
+  geom_bump(size = 2, smooth = 15, alpha = 0.3) +
+  scale_x_continuous( breaks = seq(1,14,1)) +
+  scale_y_continuous(limits = c(0.60, 1.00), breaks = seq(0.60,1.00,0.1)) +
+  #scale_y_continuous( breaks = seq(0.60,1.00,0.05)) + # breaks = seq(0.85,1.00,0.05)
+  #scale_y_reverse() +
+  scale_colour_manual(values = power_plot_nonfocals$unicol) + #power_plot_nonfocals$colorXbird
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="rank assessment periods", y = "power score") + #, subtitle = "Group 2021"
+  theme_new +
+   geom_vline(xintercept = c(2.5,6.5, 10.5 ), linetype="dashed", color =  alpha("black", 0.6)) + # removal
+   geom_vline(xintercept = c(4.5, 8.5,12.5), linetype="solid", color =  alpha("black", 0.6))   # reintro
+plot
+
+
+# now add lines for the focal birds
+# BBB removal 3 and 4
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+plotBBB <- plot +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = power_plot_21  %>% filter(id=="BBB", bin==2),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape=21, 
+             fill = "#8E0152", color="black",
+             inherit.aes = F) +
+  geom_point(data = power_plot_21  %>% filter(id=="BBB", bin==5),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, 
+             fill = "#8E0152", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_21 %>% filter(id == "BBB", bin<3), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = "#8E0152",
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_21 %>% filter(id == "BBB", bin>4), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = "#8E0152", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == min(bin)), aes(label = "BBB")) +
+  geom_text(data = power_plot_21 %>% filter(id == "BBB",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "BBB"),
+            color = "#8E0152", size = 10, hjust = 0)  #, fontface = "bold"
+   #geom_text(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "BBB"),
+  #          color = "#1f78b4", size = 12, hjust = 0, fontface = "bold") +
+ 
+plotBBB
+
+# GPG removal bin 7 and 8
+plotGPG <- plotBBB + # purple = "#6a51a3", 
+  geom_point(data = power_plot_21  %>% filter(id=="GPG", bin==6),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape =21, 
+             fill= "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_point(data = power_plot_21  %>% filter(id=="GPG", bin==9),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape=23, 
+             fill = "#6a51a3", color="black", 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_21 %>% filter(id == "GPG", bin<7), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#6a51a3", inherit.aes = F) + 
+  geom_bump(data = power_plot_21 %>% filter(id == "GPG", bin>8), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#6a51a3", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "GPG",bin == min(bin)), aes(label = "GPG")) +
+  geom_text(data = power_plot_21 %>% filter(id == "GPG",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "GPG"),
+            color = "#6a51a3", size = 10, hjust = 0)  #, fontface = "bold"
+   #geom_text(data = ec_rankXbin %>% filter(id == "GPG",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "GPG"),
+  #          color = "#6a51a3", size = 12, hjust = 0, fontface = "bold") +
+plotGPG
+    
+
+# OPP removal bin 11 and 12
+plotOPP <- plotGPG +  # orange = "#ff7f00"/ lime = #E6F5D0
+  geom_point(data = power_plot_21  %>% filter(id=="OPP", bin==10),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, 
+             fill = "#ff7f00", color = "black",
+             inherit.aes = F) +
+  geom_point(data =power_plot_21  %>% filter(id=="OPP", bin==13),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, 
+             color = "black", fill = "#ff7f00", 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_21 %>% filter(id == "OPP", bin<11), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#ff7f00", inherit.aes = F) + 
+  geom_bump(data = power_plot_21 %>% filter(id == "OPP", bin>12), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, color = "#ff7f00", inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "OPP",bin == min(bin)), aes(label = "OPP")) +
+  geom_text(data = power_plot_21 %>% filter(id == "OPP",bin == min(bin) ),
+            aes(x = bin - 1.5, label = "OPP"),
+            color = "#ff7f00", size = 10, hjust = 0) #, fontface = "bold"
+   #geom_text(data = ec_rankXbin %>% filter(id == "OPP",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "OPP"),
+  #          color = "#ff7f00", size = 12, hjust = 0, fontface = "bold") +
+
+
+plotOPP 
+
+plot_powerXtime21<- plotOPP
+#plot_powerXtime21 <- plotOPP
+
+# all combined
+#ggsave("./figures/Fig_pwrXtime_21_samey.pdf", width = 18, height = 9)
+
+```
+
+
+
+
+2022 group 1
+
+
+```{r 2022_group1}
+
+range(power$power)
+
+power_plot_22 <- power %>% 
+  filter(year==2022, group=="1_west")
+
+
+# exclude the focal birds
+glimpse(focals22)
+focalsgroup1<- filter(focals22, group=="1_west")
+
+power_plot_nonfocals <- power %>% 
+  filter(year==2022,group=="1_west",  !id %in% focalsgroup1$focal )
+unique(power_plot_nonfocals$id)
+length(unique(power_plot_nonfocals$id))
+unique(power_plot_nonfocals$group)
+
+
+# plot all 
+plotg1 <- ggplot(power_plot_nonfocals, aes(x=bin, y=power, color=id)) +
+  geom_bump(size = 2, smooth = 15, alpha = 0.3) +
+  #facet_wrap(~group, nrow = 2) +  # split by group
+  
+  scale_x_continuous( breaks = seq(1,26,1)) +
+  scale_y_continuous(limits = c(0.60, 1.00), breaks = seq(0.60,1.00,0.1)) +
+  #scale_y_reverse() +
+  scale_colour_manual(values = unique(power_plot_nonfocals$unicol)) + #colorXbird #custom_palette
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="rank assessment periods", y = "power score") + #, subtitle = "Group 2022-1"
+
+  theme_new +
+  geom_vline(xintercept = c(2.5,6.5, 10.5, 14.5, 18.5, 22.5 ), 
+             linetype="dashed", color =  alpha("black", 0.6)) + # removal   
+  geom_vline(xintercept = c(4.5, 8.5,12.5, 16.5, 20.5, 24.5),
+             linetype="solid", color =  alpha("black", 0.6))   # reintro
+
+
+plotg1
+
+# highlight focal birds
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+
+
+
+# trial 1
+focaltrial1 <- "PBO"
+plottrial1 <- plotg1 +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial1 , bin==2),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial1]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial1 , bin==5),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial1]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial1 , bin<3), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial1]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial1 , bin>4), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial1]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial1 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial1 ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial1 ]), 
+            size = 10, hjust = 0) 
+plottrial1
+
+#  removal bin 7 and 8
+focaltrial2 <- "OOO"
+plottrial2 <- plottrial1 +  
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial2 , bin==6),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial2]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial2 , bin==9),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial2]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial2 , bin<7), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial2]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial2 , bin>8), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial2]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial2 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial2 ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial2]), 
+            size = 10, hjust = 0)  
+plottrial2
+    
+
+#  removal bin 11 and 12
+focaltrial3 <- "PGG"
+plottrial3 <- plottrial2 +  
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial3 , bin==10),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial3]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial3 , bin==13),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial3]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial3 , bin<11), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial3]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial3 , bin>12), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial3]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial2 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial3 ),
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial3]), 
+            size = 10, hjust = 0)  
+plottrial3
+
+# trial 4, bin 15 and 16
+focaltrial4 <- "GPO"
+plottrial4 <- plottrial3 +  
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial4 , bin==14),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial4]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial4 , bin==17),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial4]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial4 , bin<15), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial4]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial4 , bin>16), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial4]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial4 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial4 ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial4 ]), 
+            size = 10, hjust = 0)  
+ 
+plottrial4
+
+#  removal bin 7 and 8
+focaltrial5 <- "OPP"
+plottrial5 <- plottrial4 +  
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial5 , bin==18),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial5]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial5 , bin==21),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focaltrial5]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial5 , bin<19), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial5]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial5 , bin>20), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial5]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial5 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial5 ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focaltrial5]), 
+            size = 10, hjust = 0)  
+plottrial5
+    
+
+#  removal bin 11 and 12
+focaltrial6 <- "BBB"
+plottrial6 <- plottrial5 +  
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial6 , bin==22),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial6]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% filter(id==focaltrial6 , bin==25),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial6]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial6 , bin<23), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial6]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focaltrial6 , bin>24), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial6]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% filter(id == focaltrial6 ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focaltrial6 ),
+            color = unique(power_plot_22$colorXbird[power_plot_22$id==focaltrial6]), 
+            size = 10, hjust = 0)  
+plottrial6
+
+plot22_group1 <- plottrial6
+
+#ggsave("./figures/plot_rank_MS.pdf", width = 15, height = 8)
+
+```
+
+2022 group 2
+```{r}
+
+range(power$power)
+
+power_plot_22 <- power %>% 
+  filter(year==2022, group=="2_east")
+# exclude the focal birds
+glimpse(focals22)
+focalsgroup2<- filter(focals22, group=="2_east")
+
+
+power_plot_nonfocals <- power %>% 
+  filter(year==2022,group=="2_east",  !id %in% focalsgroup2$focal)
+unique(power_plot_nonfocals$id)
+length(unique(power_plot_nonfocals$id))
+unique(power_plot_nonfocals$group)
+
+# plot all 
+g2plot <- ggplot(power_plot_nonfocals, aes(x=bin, y=power, color=id)) +
+  geom_bump(size = 2, smooth = 15, alpha = 0.3) +
+  #facet_wrap(~group, nrow = 2) +  # split by group
+  
+  scale_x_continuous( breaks = seq(1,26,1)) +
+  scale_y_continuous( limits = c(0.6, 1.0), breaks = seq(0.6,1.00,0.1)) +
+  #scale_y_reverse() +
+  scale_colour_manual(values = unique(power_plot_nonfocals$unicol)) + #colorXbird; custom_palette
+  #ggtitle("dominance: eigenvector centrality") +
+  labs(x="rank assessment periods", y = "power score") + #, subtitle = "Group 2022-2"
+
+  theme_new +
+  geom_vline(xintercept = c(2.5,6.5, 10.5, 14.5, 18.5, 22.5 ), 
+             linetype="dashed", color =  alpha("black", 0.6)) + # removal   
+  geom_vline(xintercept = c(4.5, 8.5,12.5, 16.5, 20.5, 24.5),
+             linetype="solid", color =  alpha("black", 0.6))   # reintro
+
+
+g2plot
+
+# highlight focal birds
+# unique(power_plot_21$colorXbird[power_plot_21$id=="BBB"])
+
+
+
+# trial 1
+#focaltrial1 <- "BBO"
+unique(power_plot_22$unicol[power_plot_22$id=="BBO"])
+g2plottrial1 <- g2plot +  #blue = "#1f78b4"/ magenta = "#8E0152"
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==1] , bin==2),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==1]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==1]  , bin==5),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==1]  , bin<3), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==1] , bin>4), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), 
+            inherit.aes = F) +
+  #geom_label(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == min(bin)), aes(label = "BBB")) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==1], bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==1]  ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==1] ]), 
+            size = 10, hjust = 0)  #, fontface = "bold"
+   #geom_text(data = ec_rankXbin_plot %>% filter(id == "BBB",bin == max(bin) ),
+  #          aes(x = bin + .1, label = "BBB"),
+  #          color = "#1f78b4", size = 12, hjust = 0, fontface = "bold") +
+ 
+g2plottrial1
+
+#  removal bin 7 and 8
+#focaltrial2 <- "OBB"
+g2plottrial2 <- g2plottrial1 +  
+  geom_point(data = power_plot_22  %>% 
+             filter(id==focalsgroup2$focal[focalsgroup2$trial==2]  , bin==6),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==2] , bin==9),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black", 
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==2] , bin<7), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==2]]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==2], bin>8), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==2] ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==2]),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==2]]), 
+            size = 10, hjust = 0)  
+g2plottrial2
+    
+
+#  removal bin 11 and 12
+#focaltrial3 <- "PBP"
+g2plottrial3 <- g2plottrial2 +  
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==3] , bin==10),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==3] , bin==13),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==3], bin<11), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==3]]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% filter(id == focalsgroup2$focal[focalsgroup2$trial==3] , bin>12), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==3] ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==3]),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==3]]), 
+            size = 10, hjust = 0)  
+plottrial3
+
+# trial 4, bin 15 and 16
+#focaltrial4 <- "GOO"
+g2plottrial4 <- g2plottrial3 +  
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==4], bin==14),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==4] , bin==17),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==4], bin<15), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==4]]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==4], bin>16), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==4] ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==4] ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==4]]), 
+            size = 10, hjust = 0)  
+ 
+g2plottrial4
+
+#  removal bin 7 and 8
+#focaltrial5 <- "OGO"
+g2plottrial5 <- g2plottrial4 +  
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==5], bin==18),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==5] , bin==21),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==5] , bin<19), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==5]]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==5] , bin>20), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==5] ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==5] ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==5]]), 
+            size = 10, hjust = 0)  
+g2plottrial5
+    
+
+#  
+#focaltrial6 <- "GOP"
+g2plottrial6 <- g2plottrial5 +  
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==6], bin==22),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 21, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+             inherit.aes = F) +
+  geom_point(data = power_plot_22  %>% 
+               filter(id==focalsgroup2$focal[focalsgroup2$trial==6] , bin==25),
+             mapping = aes(x=bin, y=power), 
+             smooth = 15, size = 6, shape = 23, color="black",
+             fill = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+             inherit.aes = F) +
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==6] , bin<23), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==6]]),
+            inherit.aes = F) + 
+  geom_bump(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==6] , bin>24), 
+            mapping = aes(x=bin, y=power), 
+            smooth = 15, size = 2, 
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+            inherit.aes = F) +
+  geom_text(data = power_plot_22 %>% 
+              filter(id == focalsgroup2$focal[focalsgroup2$trial==6] ,bin == min(bin) ),
+            aes(x = bin - 1.5, label = focalsgroup2$focal[focalsgroup2$trial==6] ),
+            color = unique(power_plot_22$unicol[power_plot_22$id==focalsgroup2$focal[focalsgroup2$trial==6]]), 
+            size = 10, hjust = 0)  
+g2plottrial6
+
+plot22_group2 <- g2plottrial6
+```
+
+combine plots
+```{r}
+ggarrange(plot_powerXtime21 ,
+          plot22_group1,
+          plot22_group2, 
+          nrow = 3,
+          labels = c("(a) Group 2021", "(b) Group 2022-1", "(c) Group 2022-2"),
+          font.label = list(face ="plain"))
+
+ggsave("./figures/fig_powerXtime_samey.pdf", width = 18, height = 13) #, width = 18, height = 9
+```
+
+
+We then adjusted the plot in inkscape to include our experimental setup. 
+
+
+## power score changes
+power change across season
+A comparison of how much change occurred in all other birds vs the focal. 
+A raincloud plot of absolute rank change across all group members except the focal and then a point showing the focal’s absolute change for Supplemental Material
+Average power score change vs power score change focal
+
+Qa: what is the absolute power change of remaining group members and the focals ?
+Qb: Do the power score changes differ dependent on focal rank (top-ranked vs control)?
+
+
+bins prior removal and after reintro  + focal birds (group 21, group 1, group 2)
+trial 1: bins c(2,5)    c("BBB", "PBO","BBO")
+trial 2: bins c(6,9)    c("GPG", "OOO", "OBB")
+trial 3: bins c(10,13)    c("OPP", "PGG", "PBP")
+trial 4: bins c(14,17)    c("GPO", "GOO")
+trial 5: bins c(18,21)    c("OPP", "OGO")
+trial 6: bins c(22,25)    c("BBB", "GOP")
+
+ 
+get data ready
+```{r}
+# only select social manipulations
+power$bin <- as.factor(power$bin)
+power21 <- power %>%
+  filter(year==2021) %>%
+  left_join(focal_rank21)
+
+focal_rank22$bin <- as.factor(focal_rank22$bin)
+power22 <- power %>%
+  filter(year==2022) %>%
+  left_join(focal_rank22)
+
+ power22$focalrank[power22$focalrank=="middle-ranked"] <- "control"
+ power22$focalrank[power22$focalrank=="bottom-ranked"] <- "control"
+
+# combine 
+ powerXbin <- bind_rows(power21, power22)
+
+ # include perturbation
+preremovalbins <- c(2,6,10,14, 18, 22)
+powerXbin$perturbation[powerXbin$bin %in% preremovalbins] <- "removal"
+
+postreintrobins <- c(5,9,13,17,21,25)
+powerXbin$perturbation[powerXbin$bin %in% postreintrobins] <- "reintroduction"
+
+glimpse(powerXbin)
+head(powerXbin)
+
+unique(powerXbin$perturbation)
+
+power<-powerXbin
+
+```
+
+```{r long format}
+# power change after removal
+power_delta_df <- power %>% 
+  #filter(perturbation!="NA") %>%
+  mutate(trial=if_else(bin %in% c(2,5), 1, 
+                       if_else(bin %in% c(6,9), 2,
+                               if_else(bin %in% c(10,13), 3,
+                                       if_else(bin %in% c(14,17), 4,
+                                               if_else(bin %in% c(18,21), 5,
+                                                       if_else(bin %in% c(22,25), 6, 0))))))) 
+
+focals <- c("BBB", "OPP")
+
+power_change21 <- power_delta_df  %>% 
+  filter(year==2021) %>%
+  mutate(focal = if_else(id %in% c("BBB") & trial==1, "focal", 
+                  if_else(id %in% c("GPG") & trial==2, "focal", 
+                   if_else(id %in% c("OPP") & trial==3, "focal", "nonfocal"))))
+
+power_change22 <- power_delta_df  %>%
+  filter(year==2022) %>%
+  mutate(focal = if_else(id %in% c("PBO","BBO") & trial==1, "focal", 
+                  if_else(id %in% c("OOO", "OBB") & trial==2, "focal", 
+                   if_else(id %in% c("PGG", "PBP") & trial==3, "focal", 
+                    if_else(id %in% c("GPO", "GOO") & trial==4, "focal", 
+                     if_else(id %in% c("OPP", "OGO") & trial==5, "focal", 
+                      if_else(id %in% c("BBB", "GOP") & trial==6, "focal", "nonfocal"))))))) 
+
+power_change<- bind_rows(power_change21,
+                        power_change22) %>% 
+  group_by(year,group,  trial,focalrank, bandID, id) %>%
+  mutate(lead=lead(power),
+         delta_pwr=lead-power,
+         leadrank=lead(rank),
+         delta_rank=rank-leadrank
+         ) %>%
+  drop_na() %>%
+  mutate(type="change") %>% # if long format than keep, use bind_rows
+  #rename(delta_pwr = power_change,
+  #       delta_rank = rank_change) %>%
+  dplyr::select(year, group, trial, focalrank,focal, bandID, id,type, delta_pwr, delta_rank)
+
+
+# power recovery
+recovery<- c(5,6,9,10,13,14,17,18,21,22,25,26)
+
+power_rec_df<- power %>% 
+  filter(bin %in% recovery) %>%
+  mutate(trial=if_else(bin %in% c(5,6), 1, 
+                       if_else(bin %in% c(9,10), 2,
+                               if_else(bin %in% c(13,14), 3,
+                                       if_else(bin %in% c(17,18), 4,
+                                               if_else(bin %in% c(21,22), 5,
+                                                       if_else(bin %in% c(25,26), 6, 0)))))))  
+
+power_rec21 <- power_rec_df %>% 
+  filter(year==2021) %>%
+  mutate(focal = if_else(id %in% c("BBB") & trial==1, "focal", 
+                  if_else(id %in% c("GPG") & trial==2, "focal", 
+                   if_else(id %in% c("OPP") & trial==3, "focal", "nonfocal"))))
+
+power_rec22 <- power_rec_df %>%
+  filter(year==2022) %>%
+  mutate(focal = if_else(id %in% c("PBO","BBO") & trial==1, "focal", 
+                  if_else(id %in% c("OOO", "OBB") & trial==2, "focal", 
+                   if_else(id %in% c("PGG", "PBP") & trial==3, "focal", 
+                    if_else(id %in% c("GPO", "GOO") & trial==4, "focal", 
+                      if_else(id %in% c("OPP", "OGO") & trial==5, "focal", 
+                        if_else(id %in% c("BBB", "GOP") & trial==6, "focal", "nonfocal")))))))
+
+power_rec <- bind_rows(power_rec21,
+                       power_rec22) %>% 
+  group_by(year,group,  trial, id) %>%
+  mutate(lead=lead(power),
+         delta_pwr=lead-power,
+         leadrank=lead(rank),
+         delta_rank=rank-leadrank
+         ) %>%
+  drop_na() %>%
+  mutate(type="recovery") %>%
+  #rename(delta_pwr = power_rec,
+  #       delta_rank = rank_rec) %>%
+  dplyr::select(year, group, trial, focalrank,focal,bandID,  id,type, delta_pwr, delta_rank)
+  
+
+#combine long format
+power_dynamics <-   bind_rows(power_change,
+                              power_rec)
+power_dynamics$group[power_dynamics$group==1] <- '2022-1'
+power_dynamics$group[power_dynamics$group==2] <- '2022-2'
+
+# save focal data
+power_focal_wide <- power_dynamics %>%
+  filter(focal=="focal") %>%
+  pivot_wider(names_from = type, 
+              values_from = c("delta_pwr", "delta_rank")) %>%
+  dplyr::select(year, group, trial, focalrank,bandID, id, delta_pwr_change, delta_rank_change, 
+                delta_pwr_recovery, delta_rank_recovery)
+
+#power_focal_wide$group[power_focal_wide$group==1] <- '2022-1'
+#power_focal_wide$group[power_focal_wide$group==2] <- '2022-2'
+
+#write.csv(power_focal_wide, "./output/power_focals.csv")
+  
+# summarize power score change and recovery focals
+pwr_summ <- power_dynamics %>%
+  group_by(focal, type) %>% # group_by(type, group) %>%
+  summarize(mean=mean(delta_pwr), 
+            sd=sd(delta_pwr),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(delta_pwr),
+            max=max(delta_pwr),
+            range = range(delta_pwr),
+            mean_abs=mean(abs(delta_pwr)), 
+            sd_abs=sd(abs(delta_pwr)),
+            n_abs=n(),
+            se_abs=sd_abs/sqrt(n_abs),
+            min_abs=min(abs(delta_pwr)),
+            max_abs=max(abs(delta_pwr)),
+            range_abs = range(abs(delta_pwr)))
+
+```
+
+
+
+Absolute power score change after removal for the focals (n=15) is (mean +- SD) 0.15 +- 0.09 and the absolute power score recovery upon reintroductions for the focals is 0.06 +- 0.05. 
+For the remaining group members (n = 177), absolute power change is 0.04 +- 0.04 and absolute power recovery is 0.02 +- 0.02. 
+
+On average, the remaining group members for both groups in 2022 had an average absolute power score change of 0.05 (SD = 0.05, range [0.000032 , 0.30]). 
+
+plot Power change per trial X group
+
+```{r}
+
+ggplot(power_dynamics %>% filter(type=="change"), aes(x=factor(group), y=delta_pwr)) +
+  geom_boxplot(aes()) +
+  theme_classic()
+
+ggplot(power_dynamics  %>% filter(type=="change"), aes(x=factor(trial), y=abs(delta_pwr))) +
+  geom_boxplot(aes(colour = group)) +
+  theme_classic()
+
+```
+
+
+#### focal rank X power score change
+ 
+```{r}
+
+pwr_summXrank <- power_dynamics %>%
+  group_by( type, focalrank) %>% # group_by(type, group) %>%
+  summarize(mean=mean(delta_pwr), 
+            sd=sd(delta_pwr),
+            n=n(),
+            se=sd/sqrt(n), 
+            min=min(delta_pwr),
+            max=max(delta_pwr),
+            range = range(delta_pwr),
+            mean_abs=mean(abs(delta_pwr)), 
+            sd_abs=sd(abs(delta_pwr)),
+            n_abs=n(),
+            se_abs=sd_abs/sqrt(n_abs),
+            min_abs=min(abs(delta_pwr)),
+            max_abs=max(abs(delta_pwr)),
+            range_abs = range(abs(delta_pwr)))
+
+abs_pwr <- power_dynamics %>% 
+  filter(focal=="focal", type=="change") %>%
+  mutate(abs_pwr = abs(delta_pwr))
+
+# summarize
+range(abs_pwr$abs_pwr)
+mean(abs_pwr$abs_pwr, na.rm = T) # 0.2
+sd(abs_pwr$abs_pwr, na.rm = T) # 0.09
+
+abs_pwr %>%
+  group_by(group, focalrank) %>%
+  summarize(n_distinct(id))
+
+
+# plot
+ggplot(abs_pwr, aes(x=focalrank, y=abs_pwr)) +
+  geom_boxplot() +
+  theme_new
+
+ggplot(abs_pwr, aes(x=focalrank, y=abs_pwr)) +
+  geom_boxplot(aes(colour=group)) +
+  theme_new
+
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggqqplot(abs_pwr, "abs_pwr")
+shapiro.test(abs_pwr$abs_pwr)
+
+# distribution
+fitdistrplus::plotdist(abs_pwr$abs_pwr)
+fitdistrplus::descdist(abs_pwr$abs_pwr, discrete = FALSE)
+fit.norm <- fitdistrplus::fitdist(abs_pwr$abs_pwr, 'norm')
+plot(fit.norm)
+fit.beta <- fitdistrplus::fitdist(abs_pwr$abs_pwr, 'beta')
+plot(fit.beta)
+fit.beta$aic
+fit.norm$aic
+
+# model: abs power change ~ focalrank + (1|group)
+beta_pwr <- glmmTMB(abs_pwr ~ focalrank + (1|group),
+                     family = beta_family(), 
+                     data = abs_pwr)
+summary(beta_pwr)
+
+beta0 <- glmmTMB(abs_pwr ~ 1 + (1|group), 
+           data = abs_pwr)
+summary(beta0)
+
+# AIC
+AIC(beta_pwr, beta0)
+
+
+lrtest(beta_pwr, beta0)
+summary(beta_pwr)
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(beta_pwr)
+
+plot(modsim)
+
+
+
+```
+Top-ranked birds had a greater absolute power change compared to control birds (LR test = 10.75, p = 0.005). 
+
+```{r plot focal power change X focal rank}
+abs_pwr$focalrank <- factor(abs_pwr$focalrank, levels = c("top-ranked","control"))
+
+# plot: raincloud 
+ggplot(abs_pwr, aes(x=focalrank, y=abs_pwr,
+                    color=focalrank , fill=focalrank)) +
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) + 
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  
+  #scale_fill_manual(values = c("#CACC57","#609A9F"))  +
+  
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .5,
+    height = .5,
+    ## move geom to the right
+    justification = -.1, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+  ) +
+  
+  geom_boxplot(color="black",
+    width = .12, 
+  ) +
+  
+  ggdist::stat_dots(
+    layout="weave",
+    size=1,
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.1, 
+    ## adjust grouping (binning) of observations 
+    #binwidth = 0.001
+  )+
+
+  labs(x= "focal rank", y = "absolute power score change") +
+  theme_new
+
+ggsave("./figures/FigSM2_power_change_raincloud.pdf") #, width = 6, height = 4
+```
+
+
+#### comparison group vs focals
+
+model: absolute power change ~ top-ranked/control * group/focal + (1|group) or (1|group/id)
+
+```{r}
+power_change <- power_dynamics %>% 
+  filter(type=="change") %>%
+  mutate(abs_pwr=abs(delta_pwr))
+
+power_change$focalrank <- factor(power_change$focalrank, 
+                                 levels = c("top-ranked", "control"))
+
+
+```
+
+plot with faceting
+```{r}
+# focal_top <- power_change %>%
+#   filter(focal=="focal", focalrank=="top-ranked")
+# 
+# focal_control <- power_change %>%
+#   filter(focal=="focal", focalrank=="control")
+
+# plot
+plot_deltapower <- power_change %>%
+ #filter(focal=="nonfocal") %>%
+ggplot( aes(x=factor(focal), y=abs_pwr, 
+            color=focalrank, fill=focalrank)) + #interaction(focalrank, focal)
+  
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  # c("#CACC57","#609A9F") pea green and seablue
+   
+  scale_y_continuous(limits = c(0.00,0.35)) + 
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.35, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+    ##color
+    
+  ) +
+  
+  # boxplot
+  geom_boxplot(
+               color="black", fill="white",outlier.shape = NA,
+               width = .2, # 0.12
+  ) +
+  
+  # points
+  # geom_point(
+  #   size = 1.5,
+  #   alpha = .5, 
+  #   shape = 21, color="black",
+  #   position = position_jitter(
+  #     seed = 1, width = .1
+  #   ) ) +
+  
+  ggdist::stat_dots(
+    position = position_jitter(
+      seed = 1, width = .1
+    ),
+    layout="weave",
+    size=5, alpha =.7, 
+    #shape = 21, 
+    #point_fill=c("#ff6600ff","#b3b3b3ff"),
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.25,
+    ## adjust grouping (binning) of observations
+    binwidth = 0.01 # 0.01
+  ) +
+  
+  
+  facet_grid(~focalrank) +
+  
+  # aesthetics
+  #coord_cartesian(ylim = c(0.7, NA)) +
+  theme_new +
+  # theme(legend.position = "bottom",
+  #       legend.title = element_blank()) +
+  labs(x= "", y = "absolute power score change") 
+  
+  
+
+  # ## top-ranked points
+  # annotate('point', x= .85, y=focal_top$abs_pwr, shape = 21, color="black", fill=alpha("#ff6600ff", 0.2), size = 5, stroke=2 ) +
+  # 
+  # ## control 
+  # annotate('point', x= 1.85, y=focal_control$abs_pwr, shape = 21, color="black", fill=alpha("grey60", 0.2), size = 5, stroke=2 ) +
+  # 
+
+plot_deltapower
+
+ggsave("./figures/plot_deltapwrXfocalXtrial.pdf", width = 7, height = 5)
+
+```
+
+plot without faceting
+```{r}
+
+# plot
+plot_deltapower1 <- power_change %>%
+  ggplot( aes(x=factor(focal), y=abs_pwr, fill=focalrank)) + #interaction(focalrank, focal) , group=focal,  color=focal,
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.4, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    ##color
+    alpha=.6
+  ) +
+  
+  geom_point(aes(fill = focalrank), 
+             position = 
+               position_jitterdodge(jitter.width = .15, # to sepreate jitter into their group.
+                                    dodge.width = .3), 
+             size = 3, shape=21, # color="black", fill=focalrank,
+             #alpha = .03,
+             show.legend = T) +
+  
+  geom_boxplot(width = .3, 
+               outlier.shape = NA,
+               alpha = .3) +
+  
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  # c("#CACC57","#609A9F") pea green and seablue
+   
+  scale_y_continuous(limits = c(0.00,0.35)) + 
+    # aesthetics
+  #coord_cartesian(ylim = c(0.7, NA)) +
+  theme_new +
+  theme(legend.position = "bottom",
+        legend.title = element_blank()) +
+  labs(x= "", y = "absolute power score change") 
+  
+ 
+plot_deltapower1
+
+ggsave("./figures/plot_deltapwrXfocalXtrial_nofacet.pdf", width = 7, height = 4)
+
+```
+
+ 
+```{r}
+
+
+abs_pwr_summXrank <- power_change %>%
+  group_by( focalrank, focal) %>%
+  summarize(mean=mean(abs_pwr),
+            sd=sd(abs_pwr),
+            n=n(),
+            se=sd/sqrt(sd))
+
+abs_pwr_summXrank <- power_change %>%
+  group_by( focalrank) %>%
+  summarize(mean=mean(abs_pwr),
+            sd=sd(abs_pwr),
+            n=n(),
+            se=sd/sqrt(sd),
+            min=min(abs_pwr),
+            max=max(abs_pwr))
+
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggqqplot(power_change, "abs_pwr")
+shapiro.test(power_change$abs_pwr)
+
+# distribution
+fitdistrplus::plotdist(power_change$abs_pwr)
+fitdistrplus::descdist(power_change$abs_pwr, discrete = FALSE)
+fit.beta <- fitdistrplus::fitdist(power_change$abs_pwr, 'beta')
+plot(fit.beta)
+fit.beta$aic
+
+
+# which random term? (1|year) + (1|bandID) -> crossed
+beta_full <- glmmTMB(abs_pwr ~ focalrank*focal + (1|year) + (1|bandID) + (1|group/bandID),
+                     family = beta_family(), 
+                     data = power_change)
+beta1 <- glmmTMB(abs_pwr ~ focalrank*focal + (1|group) + (1|bandID) ,
+                     family = beta_family(), 
+                     data = power_change)
+beta2 <- glmmTMB(abs_pwr ~ focalrank*focal + (1|group/bandID),
+                     family = beta_family(), 
+                     data = power_change)
+beta0 <- betareg(abs_pwr ~ 1 , 
+               data = power_change)
+AIC(beta_full, beta1, beta2, beta0) # beta1 lowest AIC
+
+# model: abs power change ~ focalrank (+ or *) focal + (1|group) + (1|bandID)
+beta_full <- glmmTMB(abs_pwr ~ focalrank*focal + (1|group) + (1|bandID),
+                     family = beta_family(), 
+                     data = power_change)
+summary(beta_full)
+
+beta_pwr <- glmmTMB(abs_pwr ~ focalrank + focal + (1|group) + (1|bandID),
+                     family = beta_family(), 
+                     data = power_change)
+summary(beta_pwr)
+
+beta0 <- glmmTMB(abs_pwr ~ 1 + (1|group) + (1|bandID), 
+           data = power_change)
+summary(beta0)
+
+# AIC
+AIC(beta_full, beta_pwr, beta0)
+
+
+lrtest(beta_pwr, beta0)
+summary(beta_pwr)
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(beta_full)
+
+plot(modsim)
+
+
+# p-values (focal=group/focals & focalrank=top/control)
+beta_pwr <- glmmTMB(abs_pwr ~ focalrank + focal + (1|group) + (1|bandID),
+                     family = beta_family(), 
+                     data = power_change)
+beta_rank<- glmmTMB(abs_pwr ~ focal + (1|group) + (1|bandID),
+                     family = beta_family(), 
+                     data = power_change)
+lrtest(beta_full, beta_rank) # trial rank affects abs power change
+
+
+beta_focal<- glmmTMB(abs_pwr ~ focalrank + (1|group) + (1|bandID),
+                     family = beta_family(), 
+                     data = power_change)
+lrtest(beta_pwr, beta_focal) # being a focal results in greater abs power change
+
+lrtest(beta_full, beta_pwr) # interaction between focal rank and being a focal was not significant. 
+
+summary(beta_full)
+
+
+
+```
+
+The model with the greatest AIC value was abs_pwr ~ focalrank * focal + (1 | group). 
+The focal birds showed greater absolute power change than group members (excluding focals) (lrtest = 51.51, p < 0.001) and the top-ranked trials resulted in a greater absolute power change than the control trials (lrtest = 18.07, p < 0.001). The interaction between rank and subjects was not significant (lrtest = 0.51, p = 0.5). 
+
+
+# Testing whether individual characteristics underly rank
+
+
+## body mass differences
+body mass dynamics between group capture events (intro into flight pen, removal days, and end of social experiment)
+
+
+```{r}
+
+exp_capture_dates <- c("2021-04-05", 
+                       "2021-05-19", "2021-06-05", 
+                       "2021-06-23", "2021-07-05",
+                       "2022-01-19","2022-01-29", 
+                       "2022-02-15", "2022-03-04", 
+                       "2022-03-22", "2022-04-08",
+                       "2022-04-25", "2022-05-12")
+
+# only group capture events
+size_groupcapture <- size_all  %>%
+  filter(date %in% exp_capture_dates)
+
+unique(size_groupcapture$date) 
+
+
+```
+### distribution
+```{r}
+# normally distributed?
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=group)) + 
+  theme_classic()
+
+# shapiro test p >0.05, data normally distributed
+ggqqplot(size_groupcapture, "weight")
+shapiro.test(size_groupcapture$weight)
+
+
+m <- lm(weight ~ sex, data = size_groupcapture)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))  # observation 86
+#d_outliers # no outliers when log-transformed; 2,31,33,34
+
+
+# distribution
+fitdistrplus::plotdist(size_groupcapture$weight)
+fitdistrplus::descdist(size_groupcapture$weight, discrete = FALSE)
+fit.norm <- fitdistrplus::fitdist(size_groupcapture$weight, "norm")
+plot(fit.norm)
+fit.norm$aic
+
+# (gamlss)
+fit <- fitDist(size_groupcapture$weight, k = 2, type = "realline", trace = FALSE, try.gamlss = TRUE)
+summary(fit)
+fit$fits  # best fit: Shash = sinh-arcsinh  
+fit$failed
+
+# 
+size_groupcapture$group <- as.factor(size_groupcapture$group)
+size_groupcapture$bandID <- as.factor(size_groupcapture$bandID)
+size_groupcapture$year <- as.factor(size_groupcapture$year)
+```
+
+normal distribution would work otherwsie Family:  c("SEP4", "skew exponential power type 4") using the gamlss package
+
+As we have 14 birds that were both used in 2021 and in 2022, we have to perform a crossed random design: (1|group) + (1|bandID) to account for the 14 birds that were used in both years (and are thus present in at least 2 groups). If we would include the nested random design (1|group/bandID) than between each group, the ids can have the same identifier, even though they are distinct (e.g., BB1257 in year 2021 would be considered distinct from BB1257 in year 2022, while this is not the case). WE do have multiple measurements per bird, so 
+see https://stats.stackexchange.com/questions/228800/crossed-vs-nested-random-effects-how-do-they-differ-and-how-are-they-specified & https://stats.stackexchange.com/questions/487039/multiple-membership-vs-crossed-random-effects/487047#487047
+
+### sex difference
+weight difference at single time point: weight prior to intro to flight pen
+```{r}
+# 2021
+size_pre21 <- size_groupcapture %>%
+  filter(date=="2021-05-19")
+
+# shapiro test p >0.05, data normally distributed
+ggqqplot(size_pre21, "weight")
+shapiro.test(size_pre21$weight)
+
+# t test
+t.test(weight ~ sex, data = size_pre21)
+
+weight21 <- size_pre21 %>%
+  group_by(sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+
+# 2022
+size_pre22 <- size_groupcapture %>%
+  filter(date=="2022-01-19")
+
+# normally distributed?
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot() + 
+  theme_classic()
+
+# shapiro test p >0.05, data normally distributed
+ggqqplot(size_pre22, "weight")
+shapiro.test(size_pre22$weight)
+
+# t test
+t.test(weight ~ sex, data = size_pre22)
+
+weight22 <- size_pre22 %>%
+  group_by(sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+
+```
+Both in 2021 and 2022, males and females did not differ in body mass prior to the start of the social perturbation experiments. 
+
+
+As we had multiple measures for each bird we took the mean per id/group. 
+```{r}
+# mean
+ave_massXsex<- size_groupcapture %>%
+  group_by(sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+ave_massXgroupXsex <- size_groupcapture %>%
+  group_by(group, sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+# by id first
+ave_id <- size_groupcapture %>%
+  group_by(sex, id, bandID) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+ave_massXid <- ave_id %>%
+  group_by( sex) %>%
+  summarize(mean=mean(mean),
+            sd=mean(sd), 
+            n=n_distinct(bandID),
+            se= mean(se))
+
+t.test(ave_id$mean~ ave_id$sex)
+
+# plots
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot() + 
+  theme_new +
+  labs(y="body mass (g)")
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=group)) + 
+  theme_classic()
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=year)) + 
+  theme_classic()
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=id)) + 
+  theme_classic()
+
+
+```
+Weight did not differ between females (110.6 +- 1.2 (SE), n = 12) and males (112.8 +- 1.1, n = 16; T test: T = -0.99, p = 0.32).  
+
+
+
+As we had multiple measures for each bird we can also account for body weight changes throughout the social experiment using glmms. 
+```{r}
+# mean
+ave_massXsex<- size_groupcapture %>%
+  group_by(sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+ave_massXgroupXsex <- size_groupcapture %>%
+  group_by(group, sex) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+
+# by id first
+ave_id <- size_groupcapture %>%
+  group_by(sex, id, bandID) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n))
+ave_massXid <- ave_id %>%
+  group_by( sex) %>%
+  summarize(mean=mean(mean),
+            sd=mean(sd), 
+            n=n_distinct(bandID),
+            se= mean(se))
+
+t.test(ave_id$mean~ ave_id$sex)
+
+# plots
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot() + 
+  theme_new +
+  labs(y="body mass (g)")
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=group)) + 
+  theme_classic()
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=year)) + 
+  theme_classic()
+
+ggplot(size_groupcapture, aes(x=sex, y=weight)) +  # filter(dsize1, id!="BBB")
+  geom_boxplot(aes(color=id)) + 
+  theme_classic()
+
+
+# which random term? (1|year) + (1|bandID) -> crossed
+mfull <- lmer(weight ~ sex + (1|year) + (1|bandID) + (1|group/bandID), 
+               data = size_groupcapture)
+m1 <- lmer(weight ~ sex + (1|group) + (1|bandID) , 
+               data = size_groupcapture)
+m2 <- lmer(weight ~ sex + (1|group/bandID), 
+               data = size_groupcapture)
+m0 <- lm(weight ~ 1 , 
+               data = size_groupcapture)
+AIC(mfull, m1, m2, m0)
+
+# full model
+m1 <- lmer(weight ~ sex + (1|group) + (1|bandID) , 
+               data = size_groupcapture)
+m0 <- lmer(weight ~ 1 + (1|group) + (1|bandID) , 
+               data = size_groupcapture)
+summary(m1)
+confint(m1)
+
+#lrtest(m1, m0)
+
+# model diagnostics
+modsim <- DHARMa::simulateResiduals(m1)
+
+plot(modsim)
+plot(m1)
+
+```
+
+Weight does not differ between males ( 95%-CI [-3.1, 7.7]) and females (). We did find great variation in body mass among birds as ID explained 49.7 % of the variation. Group only explained 2.3 % of the variation.  
+
+
+
+### Is there a weight difference in years for the repeat birds?
+paired sample test 
+
+- one time point (prior to social experiments in both years)
+- mean of the repeated body mass measures in both years
+- multiple time points (prior to trial 1, trial 2, trial 3)
+
+
+```{r}
+# single measure prior to social experiment
+size_prior <- bind_rows(size_pre21, 
+                        size_pre22)  %>%
+  filter(bandID %in% repeatbirds) %>%
+  dplyr::select(year, bandID, sex, weight) %>%
+  pivot_wider(names_from = year, 
+              values_from = weight)
+
+t.test(size_prior$`2021`, size_prior$`2022`, paired = TRUE)
+
+size_repeat_summ <- bind_rows(size_pre21, 
+                        size_pre22)  %>%
+  filter(bandID %in% repeatbirds) %>%
+  group_by(year) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n)) 
+
+plotrepeatmass <- bind_rows(size_pre21, 
+                        size_pre22)  %>%
+  filter(bandID %in% repeatbirds) %>%
+  dplyr::select(year, bandID, sex, weight) %>%
+  ggplot( aes(x=year, y=weight)) +
+  geom_boxplot() + 
+  geom_point() + 
+  geom_line(aes(group=bandID)) + #, color=bandID
+  labs(y = "mean body mass (g)") +
+  theme_new 
+plotrepeatmass
+
+
+# repeated measures
+size_repeat <- size_groupcapture %>%
+  filter(bandID %in% repeatbirds) %>%
+  group_by(year,sex, bandID) %>%
+  summarize(mean=mean(weight)) %>%
+            #sd=sd(weight), 
+            #n=length(weight),
+            #se= sd/sqrt(n)) %>%
+  pivot_wider(names_from = year, 
+              values_from = mean)
+
+t.test(size_repeat$`2021`, size_repeat$`2022`, paired = TRUE)
+
+size_repeat_summ <- size_repeatL %>%
+  group_by(year) %>%
+  summarize(mean=mean(mean),
+            sd=mean(sd), 
+            n=n_distinct(bandID),
+            se= sd/sqrt(n))
+
+
+# long format
+size_repeatL <- size_groupcapture %>%
+  filter(bandID %in% repeatbirds) %>%
+  group_by(year,sex, bandID) %>%
+  summarize(mean=mean(weight),
+            sd=sd(weight), 
+            n=length(weight),
+            se= sd/sqrt(n)) 
+
+ggplot(size_repeatL, aes(x=year, y=mean)) +
+  geom_boxplot() + 
+  geom_point() + 
+  geom_line(aes(group=bandID)) + #, color=bandID
+  labs(y = "mean body mass (g)") +
+  theme_new 
+
+
+
+```
+using only the body mass measure prior to the start of the social experiment:
+The birds that were used in both experimental years (n = 14 birds) had a similar weight in 2021 (112.8 +- 6.3 g) compared to 2022 (115.4 +_ 9.0 g; paired T test: T13 = -1.4, p = 0.2). 
+
+using all repeated measures across the field season:
+The birds that were used in both experimental years were on average lighter in 2021 (111.0 +- 2.7 g) than in 2022 (113.4 +_ 2.8 g; paired T test: T13 = -3.4, p = 0.005). 
+
+The weight difference between years may be due because the birds were just caught from feral populations prior to the experiment and thus the weight better reflects natural body weight in comparison to the second year after which all birds have been in captivity and were fed a high-fat seed diet. 
+
+
+
+
+
+## correlation body mass and rank
+if you drop at a specific time point into the system, do we see an association between power score and body mass? 
+
+power score from the bin prior to capture event as this is where the hierarchy is most stable
+by trial and group separately
+
+```{r add power score prior to capture event to mass df}
+glimpse(size_groupcapture)
+
+# include bin number to mass df
+ size_bin <- size_groupcapture %>%
+   left_join(bins %>% dplyr::select(date, trial, focalrank, capture, bin_prior), 
+             by="date") %>%
+   rename(bin=bin_prior) 
+
+ size_bin$year <- as.integer(size_bin$year)
+ #size_bin$bin <- as.integer(size_bin$bin)
+ power$year <- as.factor(power$year)   
+ 
+power_size <- power %>% 
+  dplyr::select(year, bin,  bandID, id, power, rank,unicol) %>%
+  #filter(bin==1) %>% 
+  left_join(size_bin, by=c("year", "bin","bandID", "id")) %>%
+  filter(bin!="NA", weight!="NA") %>%
+  mutate(uniqueID = paste0(year, "_", bandID),
+         binID = paste0(group, "_", bin) )
+  
+
+range(power_size$power)
+range(power_size$weight)
+
+# check
+checkdf <- power_size %>%
+  group_by(group, bin) %>%
+  tally()  # some values missing because of incorrect weights
+
+```
+
+plot
+```{r}
+power_size$bin <- factor(power_size$bin, 
+                         levels = c(2,6,10, 14,18, 22, 26), 
+                         labels = c("trial 1", "trial 2",
+                                    "trial 3", "trial 4", 
+                                    "trial 5", "trial 6", 
+                                    "end"))
+power_size$group <- factor(power_size$group, 
+                           levels=c("2021", "1_west", "2_east"))
+
+plot_corr <- power_size %>%
+  arrange(date) %>% 
+  filter(bin!="end", binID!="2021_14") %>%
+ggplot(aes(x=weight, y=power, shape = sex, color=sex)) +
+  geom_point(aes(size=4, alpha = 0.8)) + # color=id
+  scale_color_manual(values = c("#CACC57","#609A9F")) +
+  #geom_smooth() +
+  
+  facet_wrap(~group*bin, ncol=3) +
+  
+  theme_new +
+  theme(legend.position="bottom") +
+  labs(x = "weight (g)", y = "power score")
+  
+
+plot_corr 
+
+ggsave( "./figures/plot_corr_pwr_mss.pdf")
+```
+
+loop for correlation by trial and group
+```{r}
+glimpse(power_size)
+
+corr_pwr_mss <- data.frame(run.code=character(), 
+                           cor=numeric(), 
+                           cor_p=numeric())
+
+run.s <- unique(power_size$binID)
+#i=1
+
+for(i in 1:length(run.s)){
+  run.code <- run.s[i]
+  run.data <- subset(power_size, binID==run.code)
+  
+  mycor <- cor.test(run.data$power, run.data$weight, method = "kendall")
+  
+  cor <- mycor$estimate
+  cor_p <- mycor$p.value
+  
+  # Pool basic summaries
+  corpool <- cbind.data.frame(run.code, cor, cor_p)
+  
+  corr_pwr_mss <- rbind(corr_pwr_mss, corpool)
+}
+  
+write.csv(corr_pwr_mss, "./output/correlation_power_mass.csv")
+
+
+
+```
+we found no correlation between power score and body weight (repeated measures correlation = -0.07, p = 0.3, Fig. TKTK; see SM TKTK for the correlation per group and trial separately). 
+
+Repeated measures of power and body mass prior to removals (2021: 3 trials/ 2022: 6 trials)
+```{r corr power ~ mass}
+# correlation per time point; at each specific time point, power and body mass are not correlated. 
+
+bin.rmc <- rmcorr( participant = date, 
+                  measure1 = weight, 
+                  measure2 = power, 
+                  dataset = power_size, 
+                  CI.level = 0.95, CIs = c("analytic", "bootstrap"), 
+                  nreps = 100, bstrap.out = F )
+bin.rmc
+
+# Open a pdf file
+pdf("./figures/overall_corr_pwr_mss.pdf") 
+# Create a plot
+plot(bin.rmc, 
+     overall = T, 
+     xlab = "weight (g)", ylab = "power score")
+# Close the pdf file
+dev.off() 
+```
+```{r}
+
+# correlation within individual variation is significant, so over time power and weight are positively correlated
+my.rmc <- rmcorr( participant = uniqueID, 
+                  measure1 = power, 
+                  measure2 = weight, 
+                  dataset = power_size, 
+                  CI.level = 0.95, CIs = c("analytic", "bootstrap"), 
+                  nreps = 100, bstrap.out = F )
+plot(my.rmc)
+my.rmc
+```
+
+## corr power 2021 vs 2022
+Is the rank achieved at the start of the social experiment but before first removal (bin 2) in 2021 correlated with rank in 22?
+present results on bin 2 (main difference between years is that the group in 2021 had 44 days to interact for the social structure to stabilize before the first bin of the social experiment, while bin 2 is the social stabilization period for groups in year 2022)
+
+-	Case study: high-ranking bird in year 2021 and 2022
+-	Bin 2 in 2022 vs 2021 the same number of days from the start (bin 2 of initial group formation period) and the same number of days before removal (bin 2 of social experiment)
+
+
+```{r}
+glimpse(power)
+
+# bin 2 prior first removal in both years: standardized to control for differences in group size
+power_repeat <- power %>%
+  filter(bandID %in% repeatbirds, bin==2) %>%
+  dplyr::select(year, bandID, sex, site_captured, power, rank)
+
+st_pwr <- scale(power_repeat$power)
+st_rank <- scale(power_repeat$rank)
+
+power_repeat<- cbind(power_repeat, st_pwr, st_rank)
+
+pwr_rep_wide <- power_repeat %>%
+  dplyr::select(-power, -rank) %>%
+  pivot_wider(names_from = year,
+              values_from = c(st_pwr, st_rank))
+
+length(unique(power_repeat$bandID))
+unique(power_repeat$bandID)
+
+ggplot(pwr_rep_wide, aes(x=st_pwr_2021, y=st_pwr_2022)) +
+  geom_point() +
+  theme_classic()
+
+glimpse(power_repeat)
+
+# Shapiro-Wilk normality test 
+shapiro.test(power_repeat$st_rank) # => p = 0.07
+shapiro.test(power_repeat$st_pwr) # => p < 0.001
+
+#q-q plots
+ggqqplot(power_repeat$st_rank, ylab = "rank") # rank normal
+ggqqplot(power_repeat$st_pwr, ylab = "power") # power not normal
+
+# correlation (year 22 not normally distirbuted)
+#cor.test(power_repeat$group21, power_repeat$group22, method = "spearman")
+
+## power
+cor.test(~ st_pwr_2021 + st_pwr_2022, data = pwr_rep_wide, method = "kendall") #
+cor.test(pwr_rep_wide$st_pwr_2021, pwr_rep_wide$st_pwr_2022, method = "kendall")
+range(power_repeat$st_pwr)
+
+plot_corr_rep_pwr <- ggplot(pwr_rep_wide, 
+                            aes(x=st_pwr_2021, y=st_pwr_2022)) + #,shape = sex, color=sex
+  stat_cor(method="kendall",  cor.coef.name = c("tau"),
+                         label.x.npc = c("left"), label.y.npc = c("bottom"), 
+                         color="black") +
+  geom_point(aes(shape = sex, color=sex, size=4, alpha = 0.8)) + # color=id
+  scale_color_manual(values = c("#CACC57","#609A9F")) +
+  theme_new +
+  theme(legend.position="bottom") +
+  labs(x = "power score 2021", y = "power score 2022") +
+  scale_y_continuous(limits = c(-4.2, 1.0)) +
+  scale_x_continuous(limits = c(-4.2, 1.0))
+
+
+plot_corr_rep_pwr
+
+## rank
+cor.test(pwr_rep_wide$st_rank_2021, pwr_rep_wide$st_rank_2022, method = "pearson")
+range(power_repeat$st_rank)
+
+plot_corr_rep_rnk <- ggplot(pwr_rep_wide, 
+                            aes(x=st_rank_2021, y=st_rank_2022)) + #,shape = sex, color=sex
+  stat_cor(method="pearson",  cor.coef.name = c("R"),
+                         label.x.npc = c("left"), label.y.npc = c("top"), 
+                         color="black") +
+  geom_point(aes(shape = sex, color=sex, size=4, alpha = 0.8)) + # color=id
+  scale_color_manual(values = c("#CACC57","#609A9F")) +
+  theme_new +
+  theme(legend.position="bottom") +
+  labs(x = "rank in 2021", y = "rank in 2022") +
+  scale_y_continuous(limits = c(-1.5, 2.1)) +
+  scale_x_continuous(limits = c(-1.5, 2.1))
+
+plot_corr_rep_rnk
+
+
+
+
+# bin 2: not standardized 
+power_repeat <- power %>%
+  filter(bandID %in% repeatbirds, bin==2) %>%
+  dplyr::select(year, bandID, sex, site_captured, power, rank) 
+
+length(unique(power_repeat$bandID))
+unique(power_repeat$bandID)
+
+glimpse(power_repeat)
+
+# Shapiro-Wilk normality test 
+shapiro.test(power_repeat$power) # => p = 0.8
+shapiro.test(power_repeat$rank) # => p = 0.007
+
+#q-q plots
+ggqqplot(power_repeat$power, ylab = "power")
+ggqqplot(power_repeat$rank, ylab = "rank")
+
+# correlation 
+cor.test(power_repeat$power, power_repeat$year, method = "kendall")
+
+cor.test(power_repeat$rank, power_repeat$year, method = "kendall")
+cor.test(power_repeat$rank, power_repeat$year, method = "pearson")
+
+
+```
+
+Now using the bin the same number of days from the beginning of the start (bin 2 initial group formation period)
+```{r}
+glimpse(powerbin2start )
+glimpse(power)
+
+pwr21 <- powerbin2start %>%
+  rename(power21=power, rank21=rank) %>%
+  dplyr::select(-X, -mark_id, -dom_ec, bandID, power21, rank21)
+pwr21$bandID[pwr21$bandID=="BB1251"] <-"BB1257"
+
+power_repeat <- power %>%
+  filter(bandID %in% repeatbirds, bin==2, year=="2022") %>%
+  dplyr::select(bandID, sex, site_captured, power, rank) %>%
+  rename(power22=power, rank22=rank)
+
+power_repeat_start <- power_repeat %>% 
+  left_join(pwr21) %>%
+  mutate()
+
+st_pwr21 <- scale(power_repeat_start$power21)
+st_pwr22 <- scale(power_repeat_start$power22)
+st_rank21 <- scale(power_repeat_start$rank21)
+st_rank22 <- scale(power_repeat_start$rank22)
+
+power_repeat<- cbind(power_repeat_start, st_pwr21, st_pwr22, st_rank21,st_rank22  )
+
+ggplot(power_repeat, aes(x=st_pwr21, y=st_pwr22)) +
+  geom_point() +
+  theme_classic()
+
+glimpse(power_repeat)
+
+# Shapiro-Wilk normality test 
+shapiro.test(power_repeat$st_rank21) 
+shapiro.test(power_repeat$st_rank22)
+shapiro.test(power_repeat$st_pwr21) 
+shapiro.test(power_repeat$st_pwr22)
+
+#q-q plots
+ggqqplot(power_repeat$st_rank21, ylab = "rank") # rank normal
+ggqqplot(power_repeat$st_rank22, ylab = "rank") 
+ggqqplot(power_repeat$st_pwr21, ylab = "power") 
+ggqqplot(power_repeat$st_pwr22, ylab = "power")# power not normal
+
+# correlation (year 22 not normally distirbuted)
+#cor.test(power_repeat$group21, power_repeat$group22, method = "spearman")
+
+## power
+cor.test(~ st_pwr21 + st_pwr22, data = power_repeat, method = "kendall") #
+#cor.test(pwr_rep_wide$st_pwr_2021, pwr_rep_wide$st_pwr_2022, method = "kendall")
+range(power_repeat$st_pwr)
+
+plot_corr_rep_pwr_start <- ggplot(power_repeat, 
+                            aes(x=st_pwr21, y=st_pwr22)) + #,shape = sex, color=sex
+  stat_cor(method="kendall",  cor.coef.name = c("tau"),
+                         label.x.npc = c("left"), label.y.npc = c("bottom"), 
+                         color="black") +
+  geom_point(aes(shape = sex, color=sex, size=4, alpha = 0.8)) + # color=id
+  scale_color_manual(values = c("#CACC57","#609A9F")) +
+  theme_new +
+  theme(legend.position="bottom") +
+  labs(x = "power score 2021", y = "power score 2022") +
+  scale_y_continuous(limits = c(-4.2, 1.5)) +
+  scale_x_continuous(limits = c(-4.2, 1.5))
+
+
+plot_corr_rep_pwr_start
+
+## rank
+cor.test(power_repeat$st_rank21, power_repeat$st_rank22, method = "pearson")
+range(power_repeat$st_rank)
+
+plot_corr_rep_rnk_start <- ggplot(power_repeat, 
+                            aes(x=st_rank21, y=st_rank22)) + #,shape = sex, color=sex
+  stat_cor(method="pearson",  cor.coef.name = c("R"),
+                         label.x.npc = c("left"), label.y.npc = c("top"), 
+                         color="black") +
+  geom_point(aes(shape = sex, color=sex, size=4, alpha = 0.8)) + # color=id
+  scale_color_manual(values = c("#CACC57","#609A9F")) +
+  theme_new +
+  theme(legend.position="bottom") +
+  labs(x = "rank in 2021", y = "rank in 2022") +
+  scale_y_continuous(limits = c(-1.5, 2.1)) +
+  scale_x_continuous(limits = c(-1.5, 2.1))
+
+plot_corr_rep_rnk_start
+
+
+```
+
+
+
+```{r}
+plot_corpower <- ggarrange( plot_corr_rep_pwr, plot_corr_rep_rnk) # plot_corr_rep_pwr_start, plot_corr_rep_rnk_start,
+plot_corpower
+
+ggsave("./figures/plot_corr_power21vs22.pdf")
+
+
+```
+Power score and rank position obtained in 2021 by the 14 repeat birds did not correlate with power score and rank in 2022 the 3-day bin prior to first removal (power score: tau = -0.23, p = 0.28; rank: R = -0.26, p = 0.37; Fig TKTK) and did not correlate during the period with the same number of days after initial introduction into the flight pens (power score: tau = 0.19, p = 0.39; rank: R = 0.21, p = 0.48). 
+
+
+## body mass dynamics
+
+
+
+#### focals body mass change and recovery
+ 
+
+in percentage 
+body weight gain positive values while weight loss negative values
+
+```{r mass change focals}
+
+glimpse(size_all)
+
+# mean mass /bird/year
+mass_mean <- size_all %>%
+  group_by(year, bandID) %>%
+  arrange(bandID, date) %>%
+  mutate(#weighttime2=lead(weight),
+         #masschange=weighttime2-weight, 
+         mean=mean(weight)) %>% #,massperc = weight/mean*100
+  dplyr::select(year,bandID, id,  mean) %>%
+  slice(1) %>%
+  ungroup()
+
+mass_mean %>%
+  group_by(year) %>%
+  tally()
+
+# mass change
+size_all$perturbation[size_all$date %in% group_capture_dates] <- "removal"
+size_all$perturbation[size_all$date %in% focal_reintro_dates] <- "reintro"
+
+unique(size_all$perturbation)
+
+focalmass21 <- size_all %>% 
+    filter(year==2021) %>%
+    left_join(birds21) %>%
+    mutate(lead=lead(weight),
+         delta_weight=lead-weight,
+         focal=if_else(date %in% c("2021-05-19", "2021-05-28") & id=="BBB", "focal", 
+                if_else(date %in% c("2021-06-05", "2021-06-14") & id=="GPG", "focal",
+                 if_else(date %in% c("2021-06-23", "2021-07-02") & id=="OPP", "focal","nonfocal"))),
+         focalrank="top-ranked") %>%
+  filter(focal=="focal")
+  
+focalmass22 <- size_all %>% 
+   filter(year==2022) %>%
+   left_join(birds22) %>%
+   arrange(id) %>%
+   mutate(lead=lead(weight),
+         delta_weight=lead-weight,
+         focal=if_else(date %in% c("2022-01-19", "2022-02-07") & id %in% c("PBO", "BBO"), "focal", 
+                if_else(date %in% c("2022-02-15", "2022-02-24") & id %in% c("OOO", "OBB"), "focal",
+                 if_else(date %in% c("2022-03-04", "2022-03-14") & id %in% c("PGG", "PBP"), "focal",
+                         if_else(date %in% c("2022-03-22", "2022-03-31") & id %in% c("GPO", "GOO"), "focal",
+                                 if_else(date %in% c("2022-04-08", "2022-04-17") & id %in% c("OPP", "OGO"), "focal",
+                                         if_else(date %in% c("2022-04-25", "2022-05-04") & id %in% c("BBB", "GOP"), "focal","nonfocal"))))))) %>%
+  filter(focal=="focal")
+
+focalmass22$focalrank[focalmass22$id %in% c("PBO", "BBO", "GPO", "GOO", "BBB", "GOP")] <- "top-ranked"
+focalmass22$focalrank[focalmass22$id %in% c("OOO", "OBB", "PGG", "PBP", "OPP", "OGO")] <- "control"
+  
+
+focalmass_change<- bind_rows(focalmass21,
+                        focalmass22) %>% 
+  left_join(mass_mean, b=c("year","bandID", "id")) %>%
+  mutate(perc_change = delta_weight/mean*100)
+
+focalmass_change$perturbation <- factor(focalmass_change$perturbation, 
+                           levels =c("removal", "reintro"), 
+                           labels = c("removal", "reintroduction"))
+
+ggplot(focalmass_change, aes(x=perturbation, y= perc_change)) + 
+  geom_boxplot() +
+  geom_hline(yintercept = 0) +
+  theme_new +
+  labs(x= "perturbation type", y= "weight change (%)") 
+
+
+
+```
+
+There is one repeat focal (GPG in 2021 = PBO in 2022), therefore account for ID as random factor, yet we receive singular fit warning
+
+stats
+```{r}
+
+# differences in focal weight change between removal and reintroduction
+
+
+# shapiro test p >0.05, data normally distributed
+ggqqplot(focalmass_change, "perc_change")
+shapiro.test(focalmass_change$perc_change)
+
+
+m <- lm(perc_change ~ perturbation, data = focalmass_change)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))  # observation 86
+#d_outliers # no outliers when log-transformed; 2,31,33,34
+
+
+# distribution
+fitdistrplus::plotdist(focalmass_change$perc_change)
+fitdistrplus::descdist(focalmass_change$perc_change, discrete = FALSE)
+fit.norm <- fitdistrplus::fitdist(focalmass_change$perc_change, "norm")
+plot(fit.norm)
+fit.norm$aic
+
+# test
+focalmassP <- focalmass_change %>%
+  filter(!id %in% c("PBP", "PGG"))
+t.test(focalmassP$perc_change~ focalmassP$perturbation,
+            paired = TRUE)
+
+
+cd <- effsize::cohen.d(focalmassP$perc_change~ focalmassP$perturbation, paired = TRUE)
+d <- cd$estimate
+n <- length(unique(focalmassP$id))
+pwr.t.test(n=n, d= d, sig.level = 0.05, power = NULL,  type=c("paired"))
+
+
+
+# plot mass change with df in long format
+range(focalmass_change$perc_change)
+
+
+# model -> singular fit
+
+mfull <- lmer(perc_change ~ perturbation*focalrank + (1|group) + (1|bandID), 
+              data = focalmass_change)
+summary(mfull)
+
+m1 <- lmer(perc_change ~ perturbation + (1|group) +(1|bandID), 
+              data = focalmass_change)
+summary(m1)
+
+
+m0 <- lmer(perc_change ~ 1 + (1|group) +(1|bandID), 
+              data = focalmass_change)
+
+lrtest(m1,m0)
+AIC(m1,m0)
+
+# model wihtout random factor due to signular fit
+
+mfull <- aov(perc_change ~ perturbation*focalrank, 
+              data = focalmass_change)
+summary(mfull)
+
+# summary
+focalmasssummXtype <- focalmass_change %>%
+  group_by(perturbation) %>%
+  summarize(mean=mean(perc_change),
+            sd=sd(perc_change),
+            n=n(),
+            se=sd/sqrt(n))
+
+focalmasssummXrank <- focalmass_change %>%
+  group_by(focalrank) %>%
+  summarize(mean=mean(perc_change),
+            sd=sd(perc_change),
+            n=n(),
+            se=sd/sqrt(n))
+
+focalmasssummXtypeXrank <- focalmass_change %>%
+  group_by(perturbation, focalrank) %>%
+  summarize(mean=mean(perc_change),
+            sd=sd(perc_change))
+```
+We found no difference in body mass change in the focal birds during the 8-day removal or reintroduction period (F1,24 = 1.9, p = 0.2). We did find an effect of the rank position on body weight change, where the perturbation of a previously top-ranked focal bird resulted in a greater body weight change (-2.42 +- 0.74 (SE)) than the control focal birds (0.55 +- 0.92) (F1,24 = 5.4, p = 0.03). We did not find an interaction between perturbation and focal rank (F1,24 = 0.1, p = 0.8). 
+
+#####plot
+```{r}
+# weight change and weight recovery
+# in %
+
+cor.test(fm$removal, fm$reintroduction, method=c("pearson"))
+
+fm <- focalmass_change %>% 
+  dplyr::select(year,perturbation, bandID, id, focalrank,  perc_change) %>%
+  pivot_wider(names_from = perturbation,
+              values_from = perc_change) 
+
+unique(fm$focalrank)
+fm$focalrank <- factor(fm$focalrank, 
+                          levels=c("top-ranked", "control"))
+
+
+plot_focalmc <- ggplot(fm, aes(x=removal, y=reintroduction)) +
+  geom_point( aes(color=focalrank, fill=focalrank),size=4, alpha = 0.8)+ #aes(shape=sex, fill=rank), 
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +
+  theme_new  + 
+  #facet_wrap(~trial) +
+  theme(legend.position = "bottom")+
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(y = "after reintroduction (%)", x = "after removal (%)") + #, title="Change between capture events"
+  
+  geom_hline(yintercept=0,
+             linetype="dashed", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey",0.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey", 0.01)) +
+  
+  scale_x_continuous(limits = c(-7, 7)) +
+  scale_y_continuous(limits = c(-7, 7)) 
+  #  stat_cor(method="pearson",  cor.coef.name = c("R"),
+  #                        label.x.npc = c("left"), label.y.npc = c("top"), 
+  #                        color="black") 
+
+plot_focalmc
+#ggsave("./figures/focal_weight_dynamics_perc.pdf")
+
+# in grams
+
+ggplot(focal_summary, aes(x=weight_change, y=weight_recovery)) +
+  geom_point( aes(color=focalrank, fill=focalrank),size=4, alpha = 0.8)+ #aes(shape=sex, fill=rank), 
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +
+  theme_new  + 
+  #facet_wrap(~trial) +
+  theme(legend.position = "bottom")+
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(y = "weight change after reintroduction (g)", x = "weight change after removal (g)") + #, title="Change between capture events"
+  
+  geom_hline(yintercept=0,
+             linetype="dashed", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey",0.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey", 0.01)) +
+  
+  scale_x_continuous(limits = c(-7, 7)) +
+  scale_y_continuous(limits = c(-7, 7)) 
+
+#ggsave("./figures/focal_weight_dynamics_g.pdf")
+```
+
+
+
+
+```{r raincloud plot mass change focals}
+focalmass_change$focalrank <- factor(focalmass_change$focalrank, 
+                           levels =c("top-ranked", "control"))
+
+plot_fmass <-ggplot(focalmass_change, aes(x=focalrank, y=perc_change,
+                       color=focalrank , fill=focalrank)) +
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) + 
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  
+  #scale_fill_manual(values = c("#CACC57","#609A9F"))  +
+  
+  ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .5,
+    height = .5,
+    ## move geom to the right
+    justification = -.1, 
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA
+  ) +
+  
+  geom_boxplot(color="black",
+    width = .12, 
+  ) +
+  
+  ggdist::stat_dots(
+    layout="weave",
+    size=1,
+    ## orientation to the left
+    side = "left",
+    ## move geom to the left
+    justification = 1.1, 
+    ## adjust grouping (binning) of observations 
+    #binwidth = 0.001
+  )+
+  
+  facet_grid(~perturbation) +
+  
+  #scale_y_reverse() +
+  #coord_cartesian(ylim = c(0.7, NA)) +
+  scale_y_continuous(limits = c(-7, 7.0)) +
+  geom_hline(yintercept = 0) +
+  theme_classic() +
+  labs(x= "", y = "body mass change (%)") +
+  theme_new
+
+ggsave("./figures/plot_focalmassXrank.pdf")
+ggsave("./figures/plot_focalmassXrankXtype.pdf")
+
+```
+
+
+
+
+Prepare table for manuscript
+```{r}
+glimpse(power_focal_wide)
+
+table_focals <- focalmass_change %>%
+  dplyr::select(year, group, bandID, id, sex, perturbation, delta_weight, perc_change) %>%
+  pivot_wider(names_from = perturbation, 
+              values_from = delta_weight) %>%
+  left_join(power_focal_wide , by=c("year", "id")) %>% 
+  dplyr::select(-group.y) %>%
+  rename(group=group.x, 
+         weight_change=removal, 
+         weight_recovery=reintroduction)%>%
+  dplyr::select(year, group, trial, bandID, id, focalrank, delta_pwr_change, delta_rank_change, weight_change, delta_pwr_recovery, delta_rank_recovery, weight_recovery) %>%
+  arrange(year, group, trial)
+
+write.csv(table_focals, "./output/table_focals.csv")
+```
+
+
+
+
+#### focals power score change and weight recovery
+focal birds that were unable to re-take their rank should also lose weight upon reintroduction: relation between rank loss removal vs weight loss reintroduction.
+
+lm between power score change after removal and weight recovery after reintroduction using a linear regression with the additional 12 focal birds from 2022. 
+
+
+```{r}
+focal_summary <- read.csv("./output/table_focals.csv")
+focal_summary$focalrank <- factor(focal_summary$focalrank, 
+                                 levels = c("top-ranked", "control"))
+
+range(focal_summary$delta_pwr_change)
+range(focal_summary$weight_recovery, na.rm=T)
+
+# power change and recovery
+ggplot(focal_summary, aes(x=delta_pwr_change, y=delta_pwr_recovery)) +
+  geom_point( aes(color=focalrank, fill=focalrank),size=4, alpha = 0.8)+ #aes(shape=sex, fill=rank), 
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +
+  theme_new  + 
+  #facet_wrap(~trial) +
+  theme(legend.position = "bottom")+
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(y = "power score recovery", x = "power score change") + #, title="Change between capture events"
+  
+  geom_hline(yintercept=0,
+             linetype="dashed", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey",0.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey", 0.01)) +
+  
+  scale_x_continuous(limits = c(-0.3, 0.3)) +
+  scale_y_continuous(limits = c(-0.3, 0.3)) 
+
+# power score change and weight change
+ggplot(focal_summary, aes(x=delta_pwr_change, y=weight_change)) +
+  geom_point( aes(color=focalrank, fill=focalrank),size=4, alpha = 0.8)+ #aes(shape=sex, fill=rank), 
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +
+  theme_new  + 
+  #facet_wrap(~trial) +
+  theme(legend.position = "bottom")+
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(y = "weight change after removal (g)", x = "power score change after removal") + #, title="Change between capture events"
+  
+  geom_hline(yintercept=0,
+             linetype="dashed", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey",0.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey", 0.01)) +
+  
+  scale_x_continuous(limits = c(-0.3, 0.3)) +
+  scale_y_continuous(limits = c(-7, 7)) 
+
+# power score change and weight recovery
+ggplot(focal_summary, aes(x=delta_pwr_change, y=weight_recovery)) +
+  geom_point( aes(color=focalrank, fill=focalrank),size=4, alpha = 0.8)+ #aes(shape=sex, fill=rank), 
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +
+  theme_new  + 
+  #facet_wrap(~trial) +
+  theme(legend.position = "bottom")+
+  #geom_text(aes(label=rank),  nudge_x=0, nudge_y=0.05) +
+  labs(y = "weight change after reintroduction (g)", x = "power score change after removal") + #, title="Change between capture events"
+  
+  geom_hline(yintercept=0,
+             linetype="dashed", color="black") + 
+  geom_vline(xintercept=0,
+             linetype="dashed", color="black") +
+  geom_rect(aes(xmin = 0, xmax = Inf, ymin = 0, ymax = Inf),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey",0.01)) +
+  geom_rect(aes(xmin = -Inf, xmax = 0, ymin = -Inf, ymax = 0),
+                   fill = "grey80", alpha = 0.01, color=alpha("grey", 0.01)) +
+  
+  scale_x_continuous(limits = c(-0.3, 0.3)) +
+  scale_y_continuous(limits = c(-7, 7)) 
+
+mod1 <- gamlss(weight_recovery ~ delta_pwr_change + 
+                random(factor(group)) + random(factor(id)), 
+                family=LO, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(focal_summary))
+
+dropterm(mod1, test="Chisq")
+
+lrtest(mfull, mod1)
+
+# null model
+m0 <- gamlss(weight_recovery ~ 1 + random(factor(group)) + random(factor(id)), 
+                family=SHASH, #control=gamlss.control(n.cyc=30), 
+                data =  na.omit(focal_summary))
+lrtest(mod1, m0)
+
+AIC(mod2, mfull)
+summary(mod2)
+plot(mod2)
+
+
+
+
+
+ggsave("figures/Fig4.corr change.pdf", width = 7, height = 4, units = "in")
+
+```
+
+
+plots
+
+```{r plots mass change}
+
+
+plot_masschangefocal_removal <- focalmass_change %>%
+  filter(perturbation=="removal") %>%
+  ggplot( aes(x=id, y=perc_change)) + #, fill=focalrank
+  geom_col( colour = "black") +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(-7, 7.0)) +
+  #facet_wrap(~period) +
+  labs(x= "focal bird ID", y= "weight change (%)", title="following removal") +
+  theme_new
+
+#ggsave("figures/figure_focal_mass_change_time.pdf")
+
+plot_masschangefocal_reintro <- focal_mass %>%
+  filter(type=="reintroduction") %>%
+  ggplot( aes(x=id, y=perc_change, fill=focalrank)) +
+  geom_col( colour = "black") +
+  scale_y_continuous(limits = c(-7, 7.0)) +
+  #facet_wrap(~period) +
+  labs(x= "", y= "", title="following reintroduction") +
+  theme_classic() +
+  scale_fill_manual(values=alpha(c("#6a51a3","#ff7f00" ),0.6)) + #"#1f78b4",
+  geom_hline(yintercept = 0) +
+  theme(legend.position = "none",
+        axis.text.y = element_blank())
+#ggsave("figures/figure_focal_mass_change_time.pdf")
+
+ggarrange(plot_masschangefocal_removal,
+          plot_masschangefocal_reintro )
+```
+
+
+
+
+
+####group vs focal mass change
+Exclude focal birds for only their respective trial 
+
+perc weight change ~  focalrank * subject + trial + (1|group) + (1|bandID)
+
+```{r mass change group}
+
+glimpse(size_groupcapture)
+
+deltamass21 <- left_join(bins, size_groupcapture) %>% 
+  filter(year==2021) %>%
+  group_by(id) %>%
+  mutate(focal = if_else(id %in% c("BBB") & trial==1, "focal", 
+                   if_else(id %in% c("GPG") & trial==2, "focal", 
+                    if_else(id %in% c("OPP") & trial==3, "focal", "nonfocal")))) %>%
+  #filter(focal!="focal") %>%
+  arrange(id, date) %>%
+  mutate(weighttime2=lead(weight),
+         masschange=weighttime2-weight, 
+         mean=mean(weight)) %>% #,massperc = weight/mean*100
+  mutate(perc_change=masschange/mean*100) %>%
+  drop_na()
+
+deltamass22 <- left_join(bins, size_groupcapture) %>% 
+  filter(year==2022) %>%
+  group_by(id) %>%
+    mutate(focal = if_else(id %in% c("PBO","BBO") & trial==1, "focal", 
+                          if_else(id %in% c("OOO", "OBB") & trial==2, "focal", 
+                                   if_else(id %in% c("PGG", "PBP") & trial==3, "focal", 
+                                            if_else(id %in% c("GPO", "GOO") & trial==4, "focal", 
+                                                     if_else(id %in% c("OPP", "OGO") & trial==5, "focal", 
+                                                             if_else(id %in% c("BBB", "GOP") & trial==6, "focal", "nonfocal"))))))) %>%
+  #filter(focal!="focal") %>%
+  arrange(id, date) %>%
+  mutate(weighttime2=lead(weight),
+         masschange=weighttime2-weight, 
+         mean=mean(weight)) %>% #,massperc = weight/mean*100
+  mutate(perc_change=masschange/mean*100) %>%
+  drop_na()
+
+
+deltamass <- bind_rows(deltamass21, deltamass22)%>% 
+  filter(focalrank!="na")
+ 
+deltamass$focalrank[deltamass$focalrank=="middle"] <- "control"
+deltamass$focalrank[deltamass$focalrank=="bottom"] <- "control"
+unique(deltamass$focalrank)
+deltamass$focalrank <- factor(deltamass$focalrank, 
+                               labels=c("top-ranked", "control"),
+                               levels=c("top", "control"))
+
+
+totalavemass <- mean(deltamass$weight, na.rm=T)
+
+
+```
+
+```{r stats}
+
+
+
+# stats : distribution ----
+x<-deltamass$perc_change
+#x<-masschange_trials_exclout$masschange
+
+range(x, na.rm=T)
+
+# normally distributed?
+# shapiro test p >0.05, data normally distributed
+ggqqplot(deltamass, "perc_change")
+ggqqplot(deltamass, "perc_change", facet.by = "focalrank")
+shapiro.test(x)
+
+# distribution
+fitdistrplus::plotdist(x)
+fitdistrplus::descdist(x, discrete = FALSE)
+
+# (gamlss)
+fit <- gamlss::fitDist(x, k = 2, type = "realline", trace = FALSE, try.gamlss = TRUE)
+summary(fit)
+fit$fits  # best fit: NET = normal exponential
+fit$failed
+
+
+m <- lm(x ~ focalrank, data = deltamass)
+summary(m)
+d <- data.frame(residuals = residuals(m),         # Residuals
+                std_residuals = rstudent(m), # Studentized Residuals
+                fitted = fitted(m),          # Fitted values
+                cooks = cooks.distance(m))   # Cook's D
+d <- mutate(d, observation = 1:nrow(d))           # Observation number
+
+# histogram of residuals
+ggplot(data = d, aes(x = std_residuals)) +
+  geom_histogram(bins = 10)
+
+# Check for Normality: QQ Normality plot of residuals
+ggplot(data = d, aes(sample = std_residuals)) +
+  stat_qq() +
+  stat_qq_line()
+
+# Check heteroscedasticity or constant variance
+ggplot(d, aes(x = fitted, y = std_residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0)
+
+# Cook's D
+ggplot(d, aes(x = observation, y = cooks)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dotted") +
+  geom_hline(yintercept = 4/nrow(d), linetype = "dashed")
+# outliers
+d_outliers <- filter(d, cooks > 4/nrow(d))
+d_outliers 
+
+
+  
+```
+I'm not sure how to fit a crossed random design in gamlss
+https://gist.github.com/bbolker/83c1ff036d4850d7dc4ca832e354f6a8 Perhaps with grouped data
+
+```{r NET = normal exponential distribution}
+deltamass$group<- as.factor(deltamass$group)
+deltamass$bandID<- as.factor(deltamass$bandID)
+
+# does body weight change differ by focal rank, subject, and over time
+library(MASS) 
+
+# deltamass$dummy <-1
+# pg <- groupedData(perc_change ~ 1| dummy, deltamass)
+# 
+# mfull <- gamlss(perc_change ~ focalrank * focal + trial + 
+#                 re(random=pdBlocked(list(pdIdent(~1),
+#                                          pdIdent(~group-1),
+#                                          pdIdent(~bandID-1)))), 
+#                 family="NET", #control=gamlss.control(n.cyc=30), 
+#                 data = na.omit(pg))
+
+mfull <- gamlss(perc_change ~ focalrank * focal + trial + 
+                random(group) + random(bandID),
+                family="NET", #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+
+mfull <- gamlss(perc_change ~ focalrank * focal + trial +re(random=~1|group) +
+               re(random=~1|bandID)   , 
+                family=NET, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+summary(mfull)
+#str(mfull)
+summary(getSmo(mfull)) # summary
+getSmo(mfull)
+ranef(getSmo(mfull)) # random effect estimates
+coef(getSmo(mfull)) # fitted coefficients
+intervals(getSmo(mfull)) # Confidence intervals
+mfull$mu.coefSmo[[1]]$coefficients$random
+
+dropterm(mfull, test="Chisq") 
+
+
+# Model Diagnostics
+plot(mfull)
+
+
+plot(fitted(mfull), residuals(mfull), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(mfull), residuals(mfull)))
+
+
+
+# summarize  ----
+summ_deltamass <- deltamass %>% 
+  ungroup() %>%  
+  summarize(mean=mean(masschange, na.rm = TRUE), 
+            sd=sd(masschange, na.rm = TRUE), 
+            n=n())
+
+summ_deltamassXsubject <- deltamass %>% 
+  group_by(focal) %>%  
+  summarize(mean=mean(masschange, na.rm = TRUE), 
+            sd=sd(masschange, na.rm = TRUE), 
+            n=n(),
+            se=sd/sqrt(n))
+
+summ_deltamassXrank <- deltamass %>% 
+  group_by(focalrank) %>%  
+  summarize(mean=mean(masschange, na.rm = TRUE), 
+            sd=sd(masschange, na.rm = TRUE), 
+            n=n())
+
+summ_mass_all <- deltamass %>%
+  group_by(focal, focalrank) %>%
+  summarize(mean=mean(masschange, na.rm = TRUE), 
+            sd=sd(masschange, na.rm = TRUE), 
+            n=n(), 
+            se=sd/sqrt(n))
+summ_mass_all
+#write.csv(summ_mass_all, "percent_weightchange.csv")
+
+```
+Trial did not have a significant effect on percent body weight changes (LRT = -0.04, p = 1).
+We found a significant interaction between focal rank and subjects (LR test = 7.86, p = 0.005). Top-ranked focal birds had a significantly greater change in percent body weight (-2.96 +- 0.91 %) than control focal birds (1.04 +- 1.48 %) and remaining group members in a top-ranked trial (0.23 +- 0.30 %) or control trial (0.45 +- 0.44 %). 
+
+Furthermore, the random factors group and ID explained a significant amount of variation in the data (LRT = 1.08, p = 0.03 and LRT = 0.0, p < 0.001, respectively). 
+
+focals showed greater percent body weight change than the remaining group members (LRT= 17.32, p < 0.001)
+
+Top-ranked trials showed greater percent body weight change than control trials: LRT = 9.4, p = 0.009). 
+
+```{r zombie code}
+# significant terms
+m1 <- gamlss(perc_change ~  focalrank * focal +
+                random(factor(group)) + random(factor(bandID)), 
+                family=NET, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+dropterm(m1, test="Chisq") 
+
+int <- gamlss(perc_change ~  focalrank + focal +
+                random(factor(group)) + random(factor(bandID)), 
+                family=NET, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+lrtest(m1,int)  # interaction is significant
+
+trial <- gamlss(perc_change ~  focal +
+                random(factor(group)) + random(factor(bandID)), 
+                family=NET, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+lrtest(m1,trial)
+
+subj <- gamlss(perc_change ~  focalrank +
+                random(factor(group)) + random(factor(bandID)), 
+                family=NET, #control=gamlss.control(n.cyc=30), 
+                data = na.omit(deltamass)
+               )
+lrtest(m1,subj)
+```
+
+#####plot without facet
+```{r plot mass change XexperimentXsubject}
+
+range(deltamass$perc_change)
+
+plot_dmass <- deltamass %>% 
+  filter(focalrank!="NA") %>%
+  ggplot( aes(x=focal, y=perc_change,
+                fill=focalrank)) +
+  geom_hline(yintercept=0) +
+  
+  # density
+   ggdist::stat_halfeye(
+    ## custom bandwidth
+    adjust = .5, 
+     ## adjust height
+    width = .4,
+    height = .4,
+    ## move geom to the right
+    justification = -.4, #-.1
+    ## remove slab interval
+    .width = 0, 
+    point_colour = NA,
+    ##color
+    alpha=.6
+  ) +
+  
+  geom_point(aes(fill = focalrank), 
+             position = 
+               position_jitterdodge(jitter.width = .2, # to sepreate jitter into their group.
+                                    dodge.width = .3), 
+             size = 2, alpha=0.8, shape=21, # color="black", fill=focalrank,
+             #alpha = .03,
+             show.legend = T) +
+  
+  geom_boxplot(color= "black", 
+               width = .3, 
+               outlier.shape = NA,
+               alpha = .3) +
+  
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) +   #c("#ff6600ff","#e6e6e6ff")  orange and lightgrey / , "#a6a6a6", "#3e1451"
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  # c("#CACC57","#609A9F") pea green and seablue
+   
+  # adjust theme and color
+  theme_new +
+  theme(legend.position = "bottom") +
+  labs(y="weight change (%)") +
+  coord_cartesian(xlim = c(1.2, NA)) +
+  scale_y_continuous(limits = c(-11, 10)) 
+
+
+
+  plot_dmass
+
+```
+
+
+```{r plot group mass change X trial}
+
+  # plot ----
+
+ set.seed(42)
+custom_palette <- c(RColorBrewer::brewer.pal(9, "Set1"),
+                    RColorBrewer::brewer.pal(8, "Dark2"),
+                    RColorBrewer::brewer.pal(3, "Set2")) %>% 
+  sample(n_distinct(mass_change$id))
+
+mass_change$comparison <- factor(mass_change$type,
+                                       levels=c("removal1",
+                                                "removal2","removal3"),
+                                       labels=c("2 vs 1",
+                                                "3 vs 2",
+                                                "end vs 3"))
+
+ group_mass %>%
+  ggplot( aes(x=trial, y=perc_change,
+               color=focalrank , fill=focalrank)) +
+  scale_color_manual(values = c("#ff6600ff","#b3b3b3ff")) + 
+  scale_fill_manual(values = c("#ff6600ff","#b3b3b3ff")) +  
+  geom_hline(yintercept=0) +
+   labs(y="weight change (%)",
+       x="comparison between capture events", 
+       title = "between captures") +
+  
+  # add half-violin from ggdist package 
+  ggdist::stat_halfeye(
+    adjust = .5, 
+    width = .5, 
+    .width = 0, 
+    justification = -.3, 
+    point_colour = NA) + 
+  
+  # add boxplot
+  geom_boxplot(
+    width = .25, 
+    outlier.shape = NA,
+    color="black") +
+  
+  # add points in jitter position
+ ggdist::stat_dots(
+    dotsize = 2,
+    side="left",
+    justification=1.15,
+    binwidth=0.15
+  ) +
+   
+    # other way to add points
+# geom_point(
+#    size = 2,
+#    alpha = .3,
+#    position = position_jitter(
+#    seed = 1, width = .15 )) + 
+   
+  # highlight focal birds
+  #annotate('point', x= .85, y=-5.3264605, size = 4, color = "#1f78b4" ) +
+  #annotate('point', x= 1.85, y=-1.8172378, size = 4, color = "#6a51a3") +
+  #annotate('point', x= 2.85, y=-5.755201, size = 4, color = "#ff7f00" ) +
+  
+  # adjust theme and color
+  theme_classic() + 
+  #scale_color_manual(values= "black") + #alpha(c("#1f78b4","#6a51a3","#ff7f00" ))
+  #scale_fill_manual(values=alpha(c("#1f78b4","#6a51a3","#ff7f00" ),0.6))+
+  theme(legend.position = "none",
+        #axis.text.y = element_blank(),
+        axis.text = element_text(), #colour = "#2F4858", size = 24
+        axis.title.x = element_text() #colour = "#2F4858", size = 24
+        ) +
+  coord_cartesian(xlim = c(0.8, NA)) +
+  scale_y_continuous(limits = c(-9, 9)) 
+  #scale_fill_tq() +
+  #coord_flip() 
+  #coord_cartesian(xlim = c(1.2, NA), clip = "off") +
+  #geom_text(aes(label = length(playback), y = 10)) +
+
+
+ 
+  
+#ggsave("./figures/group_weight_change_focalhighlight.pdf")
+
+#       ,width = 90, height = 90, units = "mm")
+```
+
+
+### plot
+```{r}
+#View(deltamass)
+ggarrange(plot_focalmc,
+          plot_dmass,
+          nrow=1, widths = c(1, 1.5),
+          labels = c("(a) weight change", "(b)"))
+
+# ggarrange(plot_fmass,
+#           plot_dmass, 
+#           nrow=2, 
+#           labels = c("(a)", "(b)"))
+
+ggsave("./figures/weigthchange.pdf", 
+       width = 200, height = 120, units = "mm") # height = 90 seems to be ok, 60 is too low, 75 just too low; width = 7, height = 4,
+```
+
+
+
+
+
