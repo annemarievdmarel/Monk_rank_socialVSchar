@@ -1,4 +1,4 @@
-,date,time,cage_num,band_id,id,weight1,weight2,weight,perturbation
+key,date,time,cage_num,band_id,id,weight1,weight2,weight,perturbation
 1,2021-04-05,10.07,WA237,BB1154,OGO,259.17,144.78,114.4,capture1_start
 2,2021-04-27,9.04,flight pen,BB1154,OGO,254.91,146.03,108.9,capture2_storm
 3,2021-05-19,9.09,flight pen,BB1154,OGO,260.68,145.77,114.9,capture3_removal1
