@@ -8,7 +8,7 @@ Dominance rank systems can be conceptualized as a continuum from rank purely as 
 We used social manipulations in a captive group of monk parakeets, where we removed and reintroduced differently-ranked birds. Using this experimental approach, we tested whether rank was more based on individual characteristics or more on social processes. We found that body mass was not correlated with rank and that the none of the focal birds could re-take their previous position in the group upon reintroduction. Using an experimental approach, we found that history of past interactions may be used over intrinsic characteristics to infer the rank of others in this group of monk parakeets. 
 
 METADATA
-The code provided in the Rmarkdown script titled "Stats_perturbations_individual ranks.Rmd" provides all the code and the description of the code to reproduce our findings. 
+The code provided in the Rmarkdown script titled "Stats_perturbations_individual ranks.Rmd" provides all the code and the description of the code to reproduce our findings. DOI: 10.5281/zenodo.7686478
 
 The data folder contains the data. 
 MOPA_power_score_2021 * 2022 .csv contains the dominance rank information for all birds
@@ -175,7 +175,7 @@ loaded via a namespace (and not attached):
 LICENSE
 CC0
 
-CITATION
-DOI: 10.5281/zenodo.6418416
+CITATION for code
+DOI: 10.5281/zenodo.7686478
 https://zenodo.org/badge/DOI/10.5281/zenodo.6418416.svg
 
