@@ -1,79 +1,79 @@
 date,perturbation,type,bin_all,n_birds,capture,capture_date,rank_assessment_21,bin
-2021-04-05,initial,capture1_start,1,22,1,2021-04-05,,
-2021-04-06,initial,initial group formation,1,22,,,,
-2021-04-07,initial,initial group formation,1,22,,,,
-2021-04-08,initial,initial group formation,1,22,,,,
-2021-04-11,0,preperturbation,2,22,,,,
-2021-04-12,0,preperturbation,2,22,,,,
-2021-04-13,0,preperturbation,2,22,,,,
-2021-04-14,0,preperturbation,3,22,,,,
-2021-04-15,0,preperturbation,3,22,,,,
-2021-04-16,0,preperturbation,3,22,,,,
-2021-04-17,0,preperturbation,4,22,,,,
-2021-04-18,0,preperturbation,4,22,,,,
-2021-04-19,0,preperturbation,4,22,,,,
-2021-04-20,0,preperturbation,5,22,,,,
-2021-04-21,0,preperturbation,5,22,,,,
-2021-04-22,0,preperturbation,5,22,,,,
-2021-04-24,0,preperturbation,6,22,,,,
-2021-04-25,0,preperturbation,6,22,,,,
-2021-04-26,0,preperturbation,6,22,,,,
-2021-04-27,capture2_storm,capture2_duo,7,20,2,2021-04-27,,
-2021-04-28,random perturbation,duo,7,20,,,,
-2021-04-29,random perturbation,duo,7,20,,,,
-2021-04-30,random perturbation,duo,7,20,,,,
-2021-05-01,random perturbation,duo,7,20,,,,
-2021-05-04,dominant partner switch,switch,8,20,,,,
-2021-05-05,dominant partner switch,switch,8,20,,,,
-2021-05-06,dominant partner switch,switch,8,20,,,,
-2021-05-07,dominant partner switch,switch,9,20,,,,
-2021-05-08,dominant partner switch,switch,9,20,,,,
-2021-05-09,dominant partner switch,switch,9,20,,,,
-2021-05-10,dominant partner switch,switch,10,20,,,0,1
-2021-05-11,dominant partner switch,switch,10,20,,,0,1
-2021-05-12,dominant partner switch,switch,10,20,,,0,1
-2021-05-15,dominant partner switch,switch,11,20,,,,
-2021-05-16,dominant partner switch,switch,11,20,,,1,2
-2021-05-17,dominant partner switch,switch,11,20,,,1,2
-2021-05-18,dominant partner switch,switch,11,20,,,1,2
-2021-05-19,capture3_removal1,capture3_removal1,12,19,3,2021-05-19,,
-2021-05-20,1,removal1,12,19,,,2,3
-2021-05-21,1,removal1,12,19,,,2,3
-2021-05-22,1,removal1,12,19,,,2,3
-2021-05-25,1,removal1,13,19,,,3,4
-2021-05-26,1,removal1,13,19,,,3,4
-2021-05-27,1,removal1,13,19,,,3,4
+2021-04-05,initial,capture1_start,1,22,1,2021-04-05,na,na
+2021-04-06,initial,initial group formation,1,22,na,na,na,na
+2021-04-07,initial,initial group formation,1,22,na,na,na,na
+2021-04-08,initial,initial group formation,1,22,na,na,na,na
+2021-04-11,0,preperturbation,2,22,na,na,na,na
+2021-04-12,0,preperturbation,2,22,na,na,na,na
+2021-04-13,0,preperturbation,2,22,na,na,na,na
+2021-04-14,0,preperturbation,3,22,na,na,na,na
+2021-04-15,0,preperturbation,3,22,na,na,na,na
+2021-04-16,0,preperturbation,3,22,na,na,na,na
+2021-04-17,0,preperturbation,4,22,na,na,na,na
+2021-04-18,0,preperturbation,4,22,na,na,na,na
+2021-04-19,0,preperturbation,4,22,na,na,na,na
+2021-04-20,0,preperturbation,5,22,na,na,na,na
+2021-04-21,0,preperturbation,5,22,na,na,na,na
+2021-04-22,0,preperturbation,5,22,na,na,na,na
+2021-04-24,0,preperturbation,6,22,na,na,na,na
+2021-04-25,0,preperturbation,6,22,na,na,na,na
+2021-04-26,0,preperturbation,6,22,na,na,na,na
+2021-04-27,capture2_storm,capture2_duo,7,20,2,2021-04-27,na,na
+2021-04-28,random perturbation,duo,7,20,na,na,na,na
+2021-04-29,random perturbation,duo,7,20,na,na,na,na
+2021-04-30,random perturbation,duo,7,20,na,na,na,na
+2021-05-01,random perturbation,duo,7,20,na,na,na,na
+2021-05-04,dominant partner switch,switch,8,20,na,na,na,na
+2021-05-05,dominant partner switch,switch,8,20,na,na,na,na
+2021-05-06,dominant partner switch,switch,8,20,na,na,na,na
+2021-05-07,dominant partner switch,switch,9,20,na,na,na,na
+2021-05-08,dominant partner switch,switch,9,20,na,na,na,na
+2021-05-09,dominant partner switch,switch,9,20,na,na,na,na
+2021-05-10,dominant partner switch,switch,10,20,na,na,0,1
+2021-05-11,dominant partner switch,switch,10,20,na,na,0,1
+2021-05-12,dominant partner switch,switch,10,20,na,na,0,1
+2021-05-15,dominant partner switch,switch,11,20,na,na,na,na
+2021-05-16,dominant partner switch,switch,11,20,na,na,1,2
+2021-05-17,dominant partner switch,switch,11,20,na,na,1,2
+2021-05-18,dominant partner switch,switch,11,20,na,na,1,2
+2021-05-19,capture3_removal1,capture3_removal1,12,19,3,2021-05-19,na,na
+2021-05-20,1,removal1,12,19,na,na,2,3
+2021-05-21,1,removal1,12,19,na,na,2,3
+2021-05-22,1,removal1,12,19,na,na,2,3
+2021-05-25,1,removal1,13,19,na,na,3,4
+2021-05-26,1,removal1,13,19,na,na,3,4
+2021-05-27,1,removal1,13,19,na,na,3,4
 2021-05-28,1,reintroduction1,14,20,,2021-05-28,4,5
-2021-05-29,1,reintroduction1,14,20,,,4,5
-2021-05-30,1,reintroduction1,14,20,,,4,5
-2021-06-02,1,reintroduction1,15,20,,,5,6
-2021-06-03,1,reintroduction1,15,20,,,5,6
-2021-06-04,1,reintroduction1,15,20,,,5,6
-2021-06-05,capture4_removal2,capture4_removal2,16,19,4,2021-06-05,,
-2021-06-06,2,removal2,16,19,,,6,7
-2021-06-07,2,removal2,16,19,,,6,7
-2021-06-08,2,removal2,16,19,,,6,7
-2021-06-11,2,removal2,17,19,,,7,8
-2021-06-12,2,removal2,17,19,,,7,8
-2021-06-13,2,removal2,17,19,,,7,8
+2021-05-29,1,reintroduction1,14,20,na,na,4,5
+2021-05-30,1,reintroduction1,14,20,na,na,4,5
+2021-06-02,1,reintroduction1,15,20,na,na,5,6
+2021-06-03,1,reintroduction1,15,20,na,na,5,6
+2021-06-04,1,reintroduction1,15,20,na,na,5,6
+2021-06-05,capture4_removal2,capture4_removal2,16,19,4,2021-06-05,na,na
+2021-06-06,2,removal2,16,19,na,na,6,7
+2021-06-07,2,removal2,16,19,na,na,6,7
+2021-06-08,2,removal2,16,19,na,na,6,7
+2021-06-11,2,removal2,17,19,na,na,7,8
+2021-06-12,2,removal2,17,19,na,na,7,8
+2021-06-13,2,removal2,17,19,na,na,7,8
 2021-06-14,2,reintroduction2,18,20,,2021-06-14,8,9
-2021-06-15,2,reintroduction2,18,20,,,8,9
-2021-06-16,2,reintroduction2,18,20,,,8,9
-2021-06-19,2,reintroduction2,19,20,,,9,10
-2021-06-20,2,reintroduction2,19,20,,,9,10
-2021-06-21,2,reintroduction2,19,20,,,9,10
-2021-06-22,2,reintroduction2,19,20,,,9,10
-2021-06-23,capture5_removal3,capture5_removal3,20,19,5,2021-06-23,,
-2021-06-24,3,removal3,20,19,,,10,11
-2021-06-25,3,removal3,20,19,,,10,11
-2021-06-26,3,removal3,20,19,,,10,11
-2021-06-29,3,removal3,21,19,,,11,12
-2021-06-30,3,removal3,21,19,,,11,12
-2021-07-01,3,removal3,21,19,,,11,12
-2021-07-02,3,reintroduction3,22,20,,2021-07-02,12,13
-2021-07-03,3,reintroduction3,22,20,,,12,13
-2021-07-04,3,reintroduction3,22,20,,,12,13
-2021-07-05,capture6_storm,reintroduction3,22,20,6,2021-07-05,,morning obs until 11 am due to storm
-2021-07-08,capture7_startshort,capture7_startshort,23,20,7,2021-07-08,,
-2021-07-09,pre-short,pre-short,23,20,,,13,14
-2021-07-10,pre-short,pre-short,23,20,,,13,14
+2021-06-15,2,reintroduction2,18,20,na,na,8,9
+2021-06-16,2,reintroduction2,18,20,na,na,8,9
+2021-06-19,2,reintroduction2,19,20,na,na,9,10
+2021-06-20,2,reintroduction2,19,20,na,na,9,10
+2021-06-21,2,reintroduction2,19,20,na,na,9,10
+2021-06-22,2,reintroduction2,19,20,na,na,9,10
+2021-06-23,capture5_removal3,capture5_removal3,20,19,5,2021-06-23,na,na
+2021-06-24,3,removal3,20,19,na,na,10,11
+2021-06-25,3,removal3,20,19,na,na,10,11
+2021-06-26,3,removal3,20,19,na,na,10,11
+2021-06-29,3,removal3,21,19,na,na,11,12
+2021-06-30,3,removal3,21,19,na,na,11,12
+2021-07-01,3,removal3,21,19,na,na,11,12
+2021-07-02,3,reintroduction3,22,20,na,2021-07-02,12,13
+2021-07-03,3,reintroduction3,22,20,na,na,12,13
+2021-07-04,3,reintroduction3,22,20,na,na,12,13
+2021-07-05,capture6_storm,reintroduction3,22,20,6,2021-07-05,na,morning obs until 11 am due to storm
+2021-07-08,capture7_startshort,capture7_startshort,23,20,7,2021-07-08,na,na
+2021-07-09,pre-short,pre-short,23,20,na,na,13,14
+2021-07-10,pre-short,pre-short,23,20,na,na,13,14

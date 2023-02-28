@@ -79,7 +79,7 @@ library(rptR)
 ##  EXPERIMENTAL BIRDS
 birdIDs <- read.csv("./data/experimental_birds.csv")
 
-focals22 <- read.csv("./data/2022_focal_birds.csv") 
+#focals22 <- read.csv("./data/2022_focal_birds.csv") 
 
 ## TIMELINE
 bin.dates21 <- read.csv("./data/2021_3daybins.csv")
@@ -91,10 +91,10 @@ focal_rank21 <- bin.dates21 %>%
   slice(1)
 
 
-obs.day.key22 <- read.csv("./data/2022_timeline.csv") 
+obs.day.key22 <- read.csv("./data/2022_3daybins.csv") 
 bin_dates22 <- obs.day.key22 %>% 
   dplyr::select(date,perturbation, experiment,focal_bird,dompattern_focal, bin) %>%
-  filter(bin!="NA") %>%
+  filter(bin!="na") %>%
   mutate(day=row_number())
 
 trap_dates <- obs.day.key22 %>% 
@@ -115,7 +115,7 @@ focal_rank22 <- bin_dates22 %>%
 # 2021
 powerXbin21 <- read.csv("./output/MOPA_power score_2021.csv") 
 
-powerbin2start <- read.csv("./data/power_bin2fromstart.csv")
+#powerbin2start <- read.csv("./data/power_bin2fromstart.csv")
 
 # update bin number so that they are the same in both years
 powerXbin21$bin[powerXbin21$bin==13] <- 14
@@ -153,7 +153,6 @@ bins <- read.csv("./data/captures_bins.csv")
 trap_file21<- read.csv("./data/morphometrics_focals_2021.csv") #%>%
   #dplyr::select(perturbation, date, id, weight)
 
-size_bc21 <- read.csv("./data/body condition.csv")
 
 trap_file22 <- read.csv("./data/2022_MOPA_capture file.csv")
 ```
